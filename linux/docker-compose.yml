@@ -1,0 +1,28 @@
+# Everlast dedicated server. install.sh writes .env next to this file and the settings files in the data folder.
+#   Start:      docker compose up -d --build
+#   Logs:       docker compose logs -f
+#   Restart:    docker compose restart   (graceful, and updates the server from Steam on the way up)
+#   Stop:       docker compose down      (graceful shutdown, up to 180 s)
+# Settings live in the data folder's appsettings.json and the world's worldsettings.json. Restart after editing them.
+# ./steam keeps SteamCMD, its cached login and the installed server. ./secrets may hold steam_branch_password.
+services:
+  everlast:
+    build:
+      context: .
+      args:
+        EVERLAST_UID: ${EVERLAST_UID:-1000}
+        EVERLAST_GID: ${EVERLAST_GID:-1000}
+    # One image per install (COMPOSE_PROJECT_NAME is everlast-<world>), so removing one install never touches another.
+    image: ${COMPOSE_PROJECT_NAME:-everlast}-server:local
+    network_mode: host
+    restart: unless-stopped
+    stop_grace_period: 180s
+    environment:
+      WORLD_NAME: ${WORLD_NAME:-Dedicated}
+      SERVER_SOURCE: ${SERVER_SOURCE:-steam}
+      STEAM_USERNAME: ${STEAM_USERNAME:-}
+      STEAM_BRANCH: ${STEAM_BRANCH:-public}
+    volumes:
+      - ./steam:/steam
+      - ${DATA_DIR:-./data}:/data
+      - ./secrets:/secrets:ro

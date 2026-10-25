@@ -1,0 +1,4 @@
+# The shell scripts and Docker files run on Linux and macOS, where CRLF line endings break them.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
