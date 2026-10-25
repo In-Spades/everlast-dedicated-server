@@ -505,6 +505,14 @@ if (-not $Yes) {
     }
 }
 
+# Stop the running server before changing its files, because Windows refuses to replace a DLL it has loaded. Players
+# get the 2 minute warning. The recorded world is the one running, also when this run changes the world name.
+$runningWorld = if ($null -ne $record) { [string](Get-Property $record 'World' $World) } else { $World }
+if ($null -ne (Get-ScheduledTask -TaskName (Get-TaskNames $runningWorld)[0] -ErrorAction SilentlyContinue)) {
+    Write-Host 'Stopping the running server. Players get a 2 minute warning, then it saves.'
+    Remove-EverlastTasks $runningWorld $InstallDir
+}
+
 $rootPath = [IO.Path]::GetPathRoot($InstallDir)
 $drive = New-Object IO.DriveInfo $rootPath
 if ($drive.AvailableFreeSpace -lt 6GB) {
@@ -771,7 +779,6 @@ if (-not $copiedSteamClient) {
 }
 
 $taskNames = Get-TaskNames $World
-Remove-EverlastTasks $World $InstallDir
 if (Test-Path -LiteralPath (Join-Path $InstallDir 'stop.flag')) { Remove-Item -LiteralPath (Join-Path $InstallDir 'stop.flag') -Force }
 if ($ServiceEnabled) {
     $quotedRun = '"' + (Join-Path $InstallDir 'run-server.ps1') + '"'
