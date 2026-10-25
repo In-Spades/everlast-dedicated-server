@@ -27,6 +27,8 @@ else
     DEFAULT_INSTALL="$HOME/everlast-server"
     DEFAULT_DATA="$HOME/.local/share/everlast-server"
 fi
+# Run from an install folder (to change settings or uninstall), that install is the default.
+[ -f "$SCRIPT_DIR/.env" ] && [ -f "$SCRIPT_DIR/docker-compose.yml" ] && DEFAULT_INSTALL=$SCRIPT_DIR
 
 usage() {
 cat <<'EOF'

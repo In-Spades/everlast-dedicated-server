@@ -9,6 +9,9 @@ set -u
 STEAM_APP_ID=4268160
 STEAMCMD_URL="https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz"
 DEFAULT_INSTALL="$HOME/EverlastServer"
+# Run from an install folder (to change settings or uninstall), that install is the default.
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+[ -f "$SCRIPT_DIR/install.conf" ] && DEFAULT_INSTALL=$SCRIPT_DIR
 DEFAULT_DATA="$HOME/Library/Application Support/Everlast Dedicated Server"
 DOMAIN="gui/$(id -u)"
 YES=no

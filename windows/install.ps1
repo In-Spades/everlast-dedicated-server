@@ -329,6 +329,8 @@ if (-not [Environment]::Is64BitOperatingSystem) {
 }
 
 $defaultInstall = Join-Path $env:USERPROFILE 'EverlastServer'
+# Run from an install folder (to change settings or uninstall), that install is the default.
+if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'install.json'))) { $defaultInstall = $PSScriptRoot }
 $defaultData = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'My Games\Everlast Dedicated Server'
 $installWasPassed = $PSBoundParameters.ContainsKey('InstallDir')
 $InstallDir = if ($installWasPassed) { [IO.Path]::GetFullPath($InstallDir) } elseif ($Uninstall -or $Yes) { $defaultInstall } else { [IO.Path]::GetFullPath((Read-Plain 'Install folder' $defaultInstall)) }
