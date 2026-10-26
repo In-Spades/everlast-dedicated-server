@@ -4,7 +4,7 @@
 #   Restart:    docker compose restart   (graceful, and updates the server from Steam on the way up)
 #   Stop:       docker compose down      (graceful shutdown, up to 180 s)
 # Settings live in the data folder's appsettings.json and the world's worldsettings.json. Restart after editing them.
-# ./steam keeps SteamCMD, its cached login and the installed server. ./secrets may hold steam_branch_password.
+# ./steam keeps SteamCMD and the installed server. ./secrets may hold steam_branch_password.
 services:
   everlast:
     build:
@@ -20,7 +20,6 @@ services:
     environment:
       WORLD_NAME: ${WORLD_NAME:-Dedicated}
       SERVER_SOURCE: ${SERVER_SOURCE:-steam}
-      STEAM_USERNAME: ${STEAM_USERNAME:-}
       STEAM_BRANCH: ${STEAM_BRANCH:-public}
     volumes:
       - ./steam:/steam

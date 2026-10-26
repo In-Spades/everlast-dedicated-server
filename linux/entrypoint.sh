@@ -2,7 +2,6 @@
 # Everlast dedicated server entrypoint. Commands:
 #   run     (default) update the server from Steam, then start it. Extra arguments go to Raptor.Game.
 #   update  update the server from Steam and exit.
-#   login   log SteamCMD in once, interactively (password and Steam Guard code). The login is cached in /steam.
 # Settings come from the environment (docker-compose.yml and .env) and the settings files in /data.
 # SERVER_SOURCE=archive: install.sh put a release archive in /steam/server, so it is never updated from Steam.
 set -euo pipefail
@@ -11,7 +10,6 @@ APP_ID=4268160
 STEAMCMD_DIR=/steam/steamcmd
 STEAMCMD="$STEAMCMD_DIR/steamcmd.sh"
 INSTALL_DIR=/steam/server
-LOGIN="${STEAM_USERNAME:-anonymous}"
 BRANCH_PASSWORD_FILE=/secrets/steam_branch_password
 
 log() { echo "[everlast] $*"; }
@@ -46,8 +44,8 @@ update_server() {
   local script output
   script=$(mktemp)
   output=$(mktemp)
-  printf '%s\n' "force_install_dir $INSTALL_DIR" "login $LOGIN" "$update" quit > "$script"
-  log "Updating app $APP_ID, branch ${STEAM_BRANCH:-public}, as $LOGIN"
+  printf '%s\n' "force_install_dir $INSTALL_DIR" "login anonymous" "$update" quit > "$script"
+  log "Updating app $APP_ID, branch ${STEAM_BRANCH:-public}"
   "$STEAMCMD" +@sSteamCmdForcePlatformType linux +@NoPromptForPassword 1 +runscript "$script" < /dev/null 2>&1 | while IFS= read -r line; do
     [ -n "$password" ] && line=${line//"$password"/***}
     printf '%s\n' "$line"
@@ -111,6 +109,5 @@ case "$command" in
       exit 1
     fi
     install_steamcmd; update_server ;;
-  login) install_steamcmd; exec "$STEAMCMD" +login "${STEAM_USERNAME:?STEAM_USERNAME is required}" +quit ;;
   *) exec "$command" "$@" ;;
 esac

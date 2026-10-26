@@ -3,8 +3,8 @@
 # docker-compose.yml and entrypoint.sh next to this script, or downloaded from the guide's repository when they are
 # missing, and copied into the install folder.
 # Guide: https://github.com/In-Spades/everlast-dedicated-server
-# Pre-release Steam installs can use EVERLAST_STEAM_LOGIN, EVERLAST_STEAM_BRANCH and EVERLAST_STEAM_BRANCH_PASSWORD.
-# They are remembered in the install folder (the branch password in secrets/, readable only by its owner).
+# Installs from another Steam branch can use EVERLAST_STEAM_BRANCH and EVERLAST_STEAM_BRANCH_PASSWORD. Both are
+# remembered in the install folder (the branch password in secrets/, readable only by its owner).
 set -uo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -354,9 +354,7 @@ strip_default=$(json_get "$WORLD_FILE" StripGearOnImport false); [ "$strip_defau
 ask STRIP_GEAR "Remove gear from arriving characters (yes or no)" "$strip_default" yes_no
 ask IMPORT_ALLOWLIST "Steam IDs allowed to bring characters in, empty means everyone" "$(json_get "$WORLD_FILE" ImportAllowlist "")" steam_ids
 
-STEAM_LOGIN=${EVERLAST_STEAM_LOGIN:-$(env_get STEAM_USERNAME)}; STEAM_LOGIN=${STEAM_LOGIN:-anonymous}
 STEAM_BRANCH=${EVERLAST_STEAM_BRANCH:-$(env_get STEAM_BRANCH)}; STEAM_BRANCH=${STEAM_BRANCH:-public}
-[[ $STEAM_LOGIN =~ ^[A-Za-z0-9_.-]+$ ]] || fail "EVERLAST_STEAM_LOGIN can only hold letters, digits, ., - and _."
 [[ $STEAM_BRANCH =~ ^[A-Za-z0-9_.-]+$ ]] || fail "EVERLAST_STEAM_BRANCH can only hold letters, digits, ., - and _."
 
 info ""
@@ -387,7 +385,7 @@ info "  Characters:      $MAX_CHARACTERS per account, transfers $TRANSFERS, max 
 info "  Import allowed:  ${IMPORT_ALLOWLIST:-everyone}"
 if [ -n "$ARCHIVE" ]; then source_text="archive $ARCHIVE"
 elif [ "$SERVER_SOURCE" = archive ]; then source_text="the release archive already installed (--steam switches to Steam)"
-else source_text="Steam, branch $STEAM_BRANCH, as $STEAM_LOGIN"
+else source_text="Steam, branch $STEAM_BRANCH"
 fi
 info "  Server source:   $source_text"
 info "  Keep running:    $SERVICE"
@@ -468,28 +466,19 @@ FIREWALL_RULES=""
     env_line EVERLAST_UID "$OWNER_UID"
     env_line EVERLAST_GID "$OWNER_GID"
     env_line SERVER_SOURCE "$SERVER_SOURCE"
-    env_line STEAM_USERNAME "$([ "$STEAM_LOGIN" = anonymous ] || echo "$STEAM_LOGIN")"
     env_line STEAM_BRANCH "$STEAM_BRANCH"
     env_line FIREWALL_TOOL "$([ "$FIREWALL" = yes ] && echo "$FIREWALL_TOOL" || echo none)"
     env_line FIREWALL_RULES "$FIREWALL_RULES"
 } > "$INSTALL_DIR/.env"
 # Installed by root, hand the folders the container writes to its uid.
 [ "$(id -u)" -eq 0 ] && chown -R "$OWNER_UID:$OWNER_GID" "$INSTALL_DIR/steam" "$INSTALL_DIR/secrets" "$DATA_DIR"
-# The world settings hold the join password and steam/ the cached Steam login, so only their owner may read them.
+# The world settings hold the join password and secrets/ the branch password, so only their owner may read them.
 chmod 700 "$INSTALL_DIR/secrets" "$INSTALL_DIR/steam" "$DATA_DIR"
 
 [ "$FIREWALL" = yes ] && { firewall add "$FIREWALL_TOOL" "$FIREWALL_RULES" && info "Opened $FIREWALL_RULES in $FIREWALL_TOOL."; }
 
 info "Building the Docker image."
 compose build -q || fail "Docker could not build the image. See the output above."
-if [ "$STEAM_LOGIN" != anonymous ] && [ "$SERVER_SOURCE" = steam ]; then
-    if [ -t 0 ]; then
-        info "Signing SteamCMD in as $STEAM_LOGIN. The first time it asks for the password and a Steam Guard code."
-        compose run --rm -it everlast login || fail "The SteamCMD sign-in failed."
-    else
-        info "Skipped the SteamCMD sign-in for $STEAM_LOGIN because there is no terminal. Run it once: cd $INSTALL_DIR && docker compose run --rm -it everlast login"
-    fi
-fi
 
 log_file="$DATA_DIR/Worlds/$WORLD/server.log"
 if [ "$SERVICE" = yes ]; then

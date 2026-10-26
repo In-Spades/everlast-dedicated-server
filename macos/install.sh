@@ -2,8 +2,8 @@
 set -u
 
 # Everlast Dedicated Server installer for Apple Silicon Macs.
-# Pre-release Steam installs can use EVERLAST_STEAM_LOGIN, EVERLAST_STEAM_BRANCH,
-# and EVERLAST_STEAM_BRANCH_PASSWORD. The password is never saved by this script.
+# Installs from another Steam branch can use EVERLAST_STEAM_BRANCH and EVERLAST_STEAM_BRANCH_PASSWORD. The branch
+# password is kept only in the install folder's steam-branch-password, readable only by you.
 # Guide: https://github.com/In-Spades/everlast-dedicated-server
 
 STEAM_APP_ID=4268160
@@ -215,13 +215,11 @@ prompt_value INSTALL_DIR "Install folder" "$DEFAULT_INSTALL"
 INSTALL_DIR=${INSTALL_DIR/#\~/$HOME}
 INSTALL_RECORD="$INSTALL_DIR/install.conf"
 EXISTING_SOURCE=""
-record_login=anonymous
 record_branch=public
 if [ -f "$INSTALL_RECORD" ]; then
     record_archive=$(plutil -extract ArchiveMode raw -o - "$INSTALL_RECORD" 2>/dev/null) || fail "Could not read ArchiveMode from $INSTALL_RECORD."
     record_data=$(plutil -extract DataDir raw -o - "$INSTALL_RECORD" 2>/dev/null) || fail "Could not read DataDir from $INSTALL_RECORD."
     record_world=$(plutil -extract World raw -o - "$INSTALL_RECORD" 2>/dev/null) || fail "Could not read World from $INSTALL_RECORD."
-    record_login=$(plutil -extract SteamLogin raw -o - "$INSTALL_RECORD" 2>/dev/null) || fail "Could not read SteamLogin from $INSTALL_RECORD."
     record_branch=$(plutil -extract SteamBranch raw -o - "$INSTALL_RECORD" 2>/dev/null) || fail "Could not read SteamBranch from $INSTALL_RECORD."
     [ "$DATA_DIR_SET" = yes ] || DEFAULT_DATA=$record_data
     if [ "$record_archive" = true ]; then EXISTING_SOURCE=archive; else EXISTING_SOURCE=steam; fi
@@ -407,7 +405,6 @@ elif [ "$SOURCE_MODE" = archive-reuse ]; then
     "$INSTALL_DIR/steamcmd/steamcmd.sh" +quit >"$INSTALL_DIR/logs/steamcmd-install.log" 2>&1 || info "SteamCMD reported an error. See $INSTALL_DIR/logs/steamcmd-install.log."
 else
     ARCHIVE_MODE=false
-    steam_login=${EVERLAST_STEAM_LOGIN:-$record_login}
     steam_branch=${EVERLAST_STEAM_BRANCH:-$record_branch}
     steam_password=${EVERLAST_STEAM_BRANCH_PASSWORD:-}
     password_file="$INSTALL_DIR/steam-branch-password"
@@ -421,13 +418,12 @@ else
     elif [ -f "$password_file" ]; then
         steam_password=$(cat "$password_file")
     fi
-    if [ "$steam_login" != anonymous ]; then "$INSTALL_DIR/steamcmd/steamcmd.sh" +login "$steam_login" +quit || fail "Steam login failed for $steam_login."; fi
     steam_log="$INSTALL_DIR/logs/steamcmd-install.log"
     umask 077
     steam_script=$(mktemp "$INSTALL_DIR/steamcmd/install.XXXXXX") || fail "Could not create a private SteamCMD script."
-    awk -v dir="$INSTALL_DIR/server" -v login="$steam_login" -v app="$STEAM_APP_ID" -v branch="$steam_branch" -v secretfile="$password_file" 'BEGIN {
+    awk -v dir="$INSTALL_DIR/server" -v app="$STEAM_APP_ID" -v branch="$steam_branch" -v secretfile="$password_file" 'BEGIN {
         quote=sprintf("%c",34); secret=""; if ((getline secret < secretfile) < 0) secret=""; close(secretfile)
-        printf "force_install_dir %s%s%s\nlogin %s%s%s\napp_update %s", quote, dir, quote, quote, login, quote, app
+        printf "force_install_dir %s%s%s\nlogin anonymous\napp_update %s", quote, dir, quote, app
         if (branch != "public") { printf " -beta %s%s%s", quote, branch, quote; if (secret != "") printf " -betapassword %s%s%s", quote, secret, quote }
         printf " validate\nquit\n"
     }' > "$steam_script"
@@ -449,7 +445,6 @@ steamclient="$INSTALL_DIR/steamcmd/steamclient.dylib"
 [ -n "$steamclient" ] || fail "SteamCMD did not provide steamclient.dylib, which the server needs to connect to Steam. See $INSTALL_DIR/logs/steamcmd-install.log, then run the installer again."
 ln -sf "$steamclient" "$INSTALL_DIR/server/steamclient.dylib" || fail "Could not link $steamclient next to the server."
 if [ "$ARCHIVE_MODE" = true ]; then
-    steam_login=${EVERLAST_STEAM_LOGIN:-$record_login}
     steam_branch=${EVERLAST_STEAM_BRANCH:-$record_branch}
 fi
 [ "$0" -ef "$INSTALL_DIR/install.sh" ] || cp "$0" "$INSTALL_DIR/install.sh" || fail "Could not copy install.sh into $INSTALL_DIR."
@@ -518,7 +513,6 @@ cat > "$INSTALL_DIR/install.conf" <<EOF
   "DataDir": $(jqstr "$DATA_DIR"),
   "World": $(jqstr "$WORLD"),
   "ArchiveMode": $ARCHIVE_MODE,
-  "SteamLogin": $(jqstr "$steam_login"),
   "SteamBranch": $(jqstr "$steam_branch")
 }
 EOF
@@ -531,7 +525,6 @@ INSTALL_DIR=$(cd "$(dirname "$0")" && pwd)
 DATA_DIR=$(plutil -extract DataDir raw -o - "$INSTALL_DIR/install.conf")
 WORLD=$(plutil -extract World raw -o - "$INSTALL_DIR/install.conf")
 ARCHIVE_MODE=$(plutil -extract ArchiveMode raw -o - "$INSTALL_DIR/install.conf")
-STEAM_LOGIN=$(plutil -extract SteamLogin raw -o - "$INSTALL_DIR/install.conf")
 STEAM_BRANCH=$(plutil -extract SteamBranch raw -o - "$INSTALL_DIR/install.conf")
 if [ "$ARCHIVE_MODE" = false ]; then
     LOG="$INSTALL_DIR/logs/steamcmd-update.log"
@@ -539,9 +532,9 @@ if [ "$ARCHIVE_MODE" = false ]; then
     umask 077
     SCRIPT=$(mktemp "$INSTALL_DIR/steamcmd/update.XXXXXX") || exit 1
     RAW=$(mktemp "$INSTALL_DIR/logs/steamcmd-update.XXXXXX") || { rm -f "$SCRIPT"; exit 1; }
-    awk -v dir="$INSTALL_DIR/server" -v login="$STEAM_LOGIN" -v branch="$STEAM_BRANCH" -v secretfile="$PASSWORD_FILE" 'BEGIN {
+    awk -v dir="$INSTALL_DIR/server" -v branch="$STEAM_BRANCH" -v secretfile="$PASSWORD_FILE" 'BEGIN {
         quote=sprintf("%c",34); secret=""; if ((getline secret < secretfile) < 0) secret=""; close(secretfile)
-        printf "force_install_dir %s%s%s\nlogin %s%s%s\napp_update 4268160", quote, dir, quote, quote, login, quote
+        printf "force_install_dir %s%s%s\nlogin anonymous\napp_update 4268160", quote, dir, quote
         if (branch != "public") { printf " -beta %s%s%s", quote, branch, quote; if (secret != "") printf " -betapassword %s%s%s", quote, secret, quote }
         printf "\nquit\n"
     }' > "$SCRIPT"

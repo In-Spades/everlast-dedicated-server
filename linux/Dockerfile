@@ -21,7 +21,7 @@ RUN chmod 755 /usr/local/bin/everlast-entrypoint \
  && mkdir -p /steam /data \
  && chown everlast:everlast /steam /data
 
-# /steam keeps SteamCMD, its cached login and the installed server, so a restart only downloads what changed.
+# /steam keeps SteamCMD and the installed server, so a restart only downloads what changed.
 USER everlast
 ENV HOME=/steam
 VOLUME ["/steam", "/data"]

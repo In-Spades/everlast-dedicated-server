@@ -6,9 +6,9 @@ Installs and manages an Everlast dedicated server on 64-bit Windows.
 Installs SteamCMD and the native win-x64 server, writes world settings, and can
 keep the server running with a Windows scheduled task.
 Guide: https://github.com/In-Spades/everlast-dedicated-server
-For an unreleased Steam branch, set EVERLAST_STEAM_LOGIN,
-EVERLAST_STEAM_BRANCH, and EVERLAST_STEAM_BRANCH_PASSWORD before running this
-script. The password is never written to the install record.
+For a Steam branch other than public, set EVERLAST_STEAM_BRANCH and
+EVERLAST_STEAM_BRANCH_PASSWORD before running this script. The password is
+never written to the install record.
 
 .PARAMETER InstallDir
 Folder for the installer, SteamCMD, server, and helper scripts.
@@ -479,7 +479,6 @@ elseif ($archiveMode) {
     $Archive = [string](Get-Property $record 'ArchivePath' '')
     Write-Host 'Keeping the installed archive server. Use -Steam to switch this install to Steam downloads.'
 }
-$steamLogin = if ([string]::IsNullOrWhiteSpace($env:EVERLAST_STEAM_LOGIN)) { [string](Get-Property $record 'SteamLogin' 'anonymous') } else { $env:EVERLAST_STEAM_LOGIN }
 $steamBranch = if ([string]::IsNullOrWhiteSpace($env:EVERLAST_STEAM_BRANCH)) { [string](Get-Property $record 'SteamBranch' 'public') } else { $env:EVERLAST_STEAM_BRANCH }
 
 Write-Host ''
@@ -561,11 +560,7 @@ elseif ($archiveMode) {
     }
 }
 else {
-    if ($steamLogin -ne 'anonymous') {
-        Write-Host "Opening SteamCMD for the one-time login for $steamLogin."
-        & $steamCmdExe +login $steamLogin +quit
-    }
-    $steamCommands = @("force_install_dir `"$serverDir`"", "login $steamLogin")
+    $steamCommands = @("force_install_dir `"$serverDir`"", 'login anonymous')
     $branchPassword = $env:EVERLAST_STEAM_BRANCH_PASSWORD
     if (-not [string]::IsNullOrWhiteSpace($branchPassword)) {
         $steamCommands += "app_update 4268160 -beta $steamBranch -betapassword $branchPassword validate"
@@ -580,10 +575,7 @@ else {
     $steamOutput = Invoke-SteamRunscript $steamCmdExe $steamCommands $branchPassword
     Write-Host $steamOutput
     if ($steamOutput -notmatch "Success! App '4268160' (fully installed|already up to date)") {
-        if ($steamLogin -eq 'anonymous') {
-            throw 'Steam cannot download Everlast Dedicated Server anonymously because the app is not released yet. Use -Archive with a win-x64 release zip or wait for the Steam release.'
-        }
-        throw 'SteamCMD did not report a successful Everlast Dedicated Server install. Check the login, branch, and branch password.'
+        throw 'Steam could not download Everlast Dedicated Server. Check the SteamCMD output above, and the branch and branch password if you set them, or use -Archive with a win-x64 release zip.'
     }
 }
 
@@ -652,7 +644,6 @@ $installRecord = [ordered]@{
     World = $World
     ArchiveMode = $archiveMode
     ArchivePath = if ($archiveMode) { $Archive } else { '' }
-    SteamLogin = $steamLogin
     SteamBranch = $steamBranch
 }
 Write-Utf8NoBom $recordPath (($installRecord | ConvertTo-Json -Depth 4) + [Environment]::NewLine)
@@ -688,7 +679,7 @@ function Update-Server {
         try { $password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer) }
         finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
     }
-    $commands = @("force_install_dir `"$serverDir`"", "login $($record.SteamLogin)")
+    $commands = @("force_install_dir `"$serverDir`"", 'login anonymous')
     if (-not [string]::IsNullOrWhiteSpace($password)) {
         $commands += "app_update 4268160 -beta $($record.SteamBranch) -betapassword $password validate"
     }
