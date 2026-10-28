@@ -8,7 +8,22 @@ These installers set up an Everlast Dedicated Server on a machine that does not 
 | macOS, Apple Silicon | [`macos/install.sh`](macos/install.sh) | Natively, as a background service of your user account (launchd) |
 | Windows, 64-bit | [`windows/install.ps1`](windows/install.ps1) | Natively, as a scheduled task that starts when you sign in |
 
-The server comes from the Everlast Dedicated Server app on Steam (app 4268160), the same server build that the game ships with. You need about 6 GB of free disk space.
+The server comes from the Everlast Dedicated Server app on Steam (app 4268160), the same server build that the game ships with.
+
+If anything breaks or does not work, please email [moh@inspades.net](mailto:moh@inspades.net?subject=Everlast%20Dedicated%20Server). See [Help](#help) for what to include.
+
+## Requirements
+
+| | Minimum | Measured |
+|---|---|---|
+| CPU | 2 cores, 64-bit | About half a core idle, about one core with players on, short peaks to 1.3 cores |
+| Memory | 4 GB | 1.5 to 2 GB idle, up to 2.3 GB with players on |
+| Disk | 6 GB free | About 1 GB for the server itself. The rest is for SteamCMD, updates and world saves |
+| Network | Two UDP ports open | The game port and the query port, see [Ports](#before-you-start) |
+
+These numbers come from the current server build with one or two players online, on Linux, Windows and macOS. More players need more CPU and memory.
+
+Do not delete the server's `Raptor.Physics/navcache` folder. The server ships with it ready, and building it again takes far more memory and time than running the server.
 
 ## Before you start
 
@@ -124,3 +139,12 @@ Updates never touch the data folder, so worlds and settings stay as they are whe
 
 - **The server is not in the server browser.** Check the game and query ports are forwarded as UDP to this machine and allowed by its firewall. The server log says `Connected to Steam master server` with its public IP and both ports once Steam lists it.
 - **Steam would not download the server.** The installer shows SteamCMD's own message. Check that the machine reaches Steam and has about 6 GB free, then run the installer again.
+
+## Help
+
+If something breaks or does not work, email [moh@inspades.net](mailto:moh@inspades.net?subject=Everlast%20Dedicated%20Server). Please include:
+
+- Your platform (Linux, macOS or Windows) and how you installed the server
+- What you did and what happened
+- The installer output, if the problem happened during install
+- The end of `server.log` from `<data folder>/Worlds/<world>/`
