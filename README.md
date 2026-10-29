@@ -27,7 +27,7 @@ Do not delete the server's `Raptor.Physics/navcache` folder. The server ships wi
 
 ## Before you start
 
-- **Your Steam ID.** Admins are Steam accounts, given as SteamID64, the 17-digit number in Steam under Account details. Admins get admin commands in game.
+- **Admin commands.** In-game admin roles are turned off in the released server, so the installer's admin Steam IDs grant nothing for now. To manage a running server, run the server program again with `--admin status`, `--admin say <text>`, `--admin kick <uid>` (the uid comes from `status`) or `--admin stop`, followed by the same `--LaunchConfig:DataRoot` and `--LaunchConfig:WorldName` arguments the server runs with.
 - **Ports.** Players need the game port (UDP, 9003 by default) and the query port (UDP), which the server browser uses. By default the query port is 27016 plus the game port's remainder after dividing by 5, so game port 9003 means query port 27019. To pick it yourself, set `NetworkConfig.QueryPort` in `appsettings.json`, for example when several servers share one IP. Forward both in your router to the server machine if players join from outside your home network.
 - **Difficulty.** Chosen once, when the world is created, and it can never change:
   - Hylic: A forgiving world for exploring at your own pace.
@@ -45,7 +45,7 @@ Press Enter to accept the default shown in brackets. Each question also has a co
 |---|---|
 | Install | Install folder, data folder for worlds and settings, world folder name |
 | Server | Server name in the server browser, game port, max players, join password (empty means anyone can join) |
-| Access | Admin Steam IDs (optional) |
+| Access | Admin Steam IDs (optional, they grant nothing in the released server for now) |
 | World | Difficulty (new worlds only), the world name players see, a short description |
 | Gameplay | PvP, death penalty (items go to Death's shop, or players keep them), XP, gathering and loot multipliers from 0.1 to 10 |
 | Characters | Characters per Steam account, whether characters from other worlds may arrive, their highest level, whether their gear is removed, who may bring them |
@@ -134,6 +134,67 @@ Day to day, from PowerShell:
 | The server program, SteamCMD and the service files | The install folder |
 
 Updates never touch the data folder, so worlds and settings stay as they are when Steam replaces the server. You can edit the two settings files by hand while the server is stopped, and the installer edits the same files.
+
+## Settings reference
+
+The server reads both files every time it starts, so restart it after an edit. A setting left out of a file uses its default. The installer only changes the settings it asks about and keeps every other one.
+
+### World settings: `<data folder>/Worlds/<world>/worldsettings.json`
+
+| Setting | Default | Values |
+|---|---|---|
+| `DisplayName` | the world folder name | The world name players see |
+| `Description` | empty | Short description for the server browser |
+| `MaxPlayers` | 100 | Players online at once. The installer accepts 1 to 1000 |
+| `ServerPassword` | empty | Join password. Empty means anyone can join |
+| `PvPEnabled` | `true` | `true` or `false` |
+| `DeathPenalty` | `DeathContainer` | `DeathContainer` (items go to Death's shop) or `KeepInventory` |
+| `XpRate`, `GatherRate`, `LootRate` | 1 | Multipliers from 0.1 to 10. Values outside that range are clamped, and the log says so |
+| `Difficulty` | `Psychic` | `Hylic`, `Psychic`, `Pneumonic`, `Pyrrhic`, `Sufferer` or `OneShot`. Set it before the world's first start and never change it afterwards |
+| `MaxCharactersPerUser` | 10 | Characters per Steam account. The installer accepts 1 to 100 |
+| `AcceptsTransfers` | `false` | Whether characters from other worlds may arrive. One Shot worlds never accept them |
+| `MaxImportLevel` | 0 | Highest level an arriving character may have. 0 means any |
+| `StripGearOnImport` | `false` | Remove an arriving character's gear |
+| `ImportAllowlist` | empty | SteamID64s allowed to bring characters, separated by commas. Empty means everyone |
+| `Admins` | empty | SteamID64s separated by commas. Grants nothing in the released server for now |
+
+The server manages `OriginServerId`, `CreatedDate` and `LastPlayedDate` itself. Leave them as they are.
+
+### Server settings: `<data folder>/appsettings.json`
+
+| Setting | Default | Values |
+|---|---|---|
+| `NetworkConfig.Name` | `Everlast Dedicated Server` (installer) | Server name in the server browser |
+| `NetworkConfig.Port` | 9003 | Game port (UDP) |
+| `NetworkConfig.QueryPort` | 27016 + game port % 5 | Query port (UDP) for the server browser. Set it when several servers share one IP |
+| `NetworkConfig.Location` | `Usa` | Region shown in the server browser: `Usa`, `Eu` or `Oce` |
+| `RespawnScalingConfig.Enabled` | `true` | Respawn faster when several players are near, see below |
+| `RespawnScalingConfig.RadiusMeters` | 50 | How close a player must be to count, from 1 to 500 metres |
+| `RespawnScalingConfig.PerPlayerSpeedup` | 0.5 | How much each player after the first speeds respawns up, from 0 to 10 |
+| `RespawnScalingConfig.MinMultiplier` | 0.25 | The shortest a respawn timer can get, as a fraction of its normal length, from 0.05 to 1 |
+
+For example, to give a server its own query port and turn respawn scaling off:
+
+```json
+{
+  "NetworkConfig": { "Name": "My Everlast Server", "Port": 9003, "QueryPort": 27100 },
+  "RespawnScalingConfig": { "Enabled": false }
+}
+```
+
+**Respawn scaling** (server builds from 29 October 2026 on) shortens the respawn timers of monsters, NPCs, objects and gathering spots on the world map when several players stand near them, so a crowd does not run out of things to fight and gather. When a timer starts, the server counts the players within `RadiusMeters` and multiplies the timer by `1 / (1 + PerPlayerSpeedup × (players - 1))`, never going below `MinMultiplier`. With the defaults:
+
+| Players nearby | 1 | 2 | 3 | 4 | 5 | 7 or more |
+|---|---|---|---|---|---|---|
+| Respawn time | normal | 67% | 50% | 40% | 33% | 25% |
+
+### Overriding settings without editing the files
+
+Every setting above can also be given on the command line or as an environment variable, and those win over the files. Use `:` on the command line and `__` in environment variables:
+
+- `--NetworkConfig:QueryPort=27100` or `NetworkConfig__QueryPort=27100`
+- `--WorldConfig:MaxPlayers=50` or `WorldConfig__MaxPlayers=50` (world settings go under `WorldConfig`)
+- `--RespawnScalingConfig:Enabled=false` or `RespawnScalingConfig__Enabled=false`
 
 ## Troubleshooting
 
