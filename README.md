@@ -28,7 +28,7 @@ Do not delete the server's `Raptor.Physics/navcache` folder. The server ships wi
 ## Before you start
 
 - **Your Steam ID.** Admins are Steam accounts, given as SteamID64, the 17-digit number in Steam under Account details. Admins get admin commands in game.
-- **Ports.** Players need the game port (UDP, 9003 by default) and the query port (UDP), which the server browser uses. The query port is 27016 plus the game port's remainder after dividing by 5, so game port 9003 means query port 27019. Forward both in your router to the server machine if players join from outside your home network.
+- **Ports.** Players need the game port (UDP, 9003 by default) and the query port (UDP), which the server browser uses. By default the query port is 27016 plus the game port's remainder after dividing by 5, so game port 9003 means query port 27019. To pick it yourself, set `NetworkConfig.QueryPort` in `appsettings.json`, for example when several servers share one IP. Forward both in your router to the server machine if players join from outside your home network.
 - **Difficulty.** Chosen once, when the world is created, and it can never change:
   - Hylic: A forgiving world for exploring at your own pace.
   - Psychic (Standard): The intended experience. Other difficulties are measured against it.
@@ -130,7 +130,7 @@ Day to day, from PowerShell:
 | What | Where |
 |---|---|
 | World save, `worldsettings.json` and `server.log` | `<data folder>/Worlds/<world>/` |
-| Server name and port | `<data folder>/appsettings.json` |
+| Server name, game port and query port | `<data folder>/appsettings.json` |
 | The server program, SteamCMD and the service files | The install folder |
 
 Updates never touch the data folder, so worlds and settings stay as they are when Steam replaces the server. You can edit the two settings files by hand while the server is stopped, and the installer edits the same files.
