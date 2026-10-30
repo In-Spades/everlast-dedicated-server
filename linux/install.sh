@@ -42,6 +42,8 @@ Every option is prompted unless it is passed here or --yes is used. Run it again
   --world NAME             World folder name
   --server-name NAME       Name shown in the server browser
   --port PORT              UDP game port
+  --query-port PORT        UDP server browser query port
+  --region NAME            Server browser region: Usa, Eu or Oce
   --max-players NUMBER     Maximum players from 1 to 1000
   --password PASSWORD      Join password
   --admins IDS             Comma-separated SteamID64 admin IDs
@@ -53,6 +55,10 @@ Every option is prompted unless it is passed here or --yes is used. Run it again
   --xp-rate NUMBER         Multiplier from 0.1 to 10
   --gather-rate NUMBER     Multiplier from 0.1 to 10
   --loot-rate NUMBER       Multiplier from 0.1 to 10
+  --respawn-scaling yes|no Faster respawns near several players
+  --respawn-radius NUMBER  Nearby-player radius from 1 to 500 metres
+  --respawn-speedup NUMBER Speedup per extra player from 0 to 10
+  --respawn-floor NUMBER   Minimum respawn fraction from 0.05 to 1
   --max-characters NUMBER  Characters per Steam account from 1 to 100
   --transfers yes|no
   --max-import-level NUMBER
@@ -69,9 +75,9 @@ Every option is prompted unless it is passed here or --yes is used. Run it again
 EOF
 }
 
-OPTIONS=(INSTALL_DIR DATA_DIR WORLD SERVER_NAME PORT MAX_PLAYERS PASSWORD ADMINS DIFFICULTY WORLD_DISPLAY_NAME DESCRIPTION
-    PVP DEATH_PENALTY XP_RATE GATHER_RATE LOOT_RATE MAX_CHARACTERS TRANSFERS MAX_IMPORT_LEVEL STRIP_GEAR IMPORT_ALLOWLIST
-    INSTALL_DOCKER SERVICE FIREWALL)
+OPTIONS=(INSTALL_DIR DATA_DIR WORLD SERVER_NAME PORT QUERY_PORT REGION MAX_PLAYERS PASSWORD ADMINS DIFFICULTY WORLD_DISPLAY_NAME DESCRIPTION
+    PVP DEATH_PENALTY XP_RATE GATHER_RATE LOOT_RATE RESPAWN_SCALING RESPAWN_RADIUS RESPAWN_SPEEDUP RESPAWN_FLOOR
+    MAX_CHARACTERS TRANSFERS MAX_IMPORT_LEVEL STRIP_GEAR IMPORT_ALLOWLIST INSTALL_DOCKER SERVICE FIREWALL)
 declare -A GIVEN=()
 need_value() { [ "$#" -ge 2 ] || fail "$1 needs a value."; }
 while [ "$#" -gt 0 ]; do
@@ -144,6 +150,9 @@ port() { [[ $1 =~ ^[1-9][0-9]{0,4}$ ]] && [ "$1" -le 65535 ] || { echo "Use a nu
 range() { [[ $3 =~ ^(0|[1-9][0-9]*)$ ]] && [ "$3" -ge "$1" ] && [ "$3" -le "$2" ] || { echo "Use a whole number from $1 to $2."; return 1; }; }
 whole() { [[ $1 =~ ^(0|[1-9][0-9]{0,8})$ ]] || { echo "Use 0 or a whole number."; return 1; }; }
 rate() { [[ $1 =~ ^(0|[1-9][0-9]*)(\.[0-9]+)?$ ]] && awk -v r="$1" 'BEGIN { exit !(r >= 0.1 && r <= 10) }' || { echo "Use a number from 0.1 to 10, such as 1 or 1.5."; return 1; }; }
+decimal_range() { [[ $3 =~ ^(0|[1-9][0-9]*)(\.[0-9]+)?$ ]] && awk -v r="$3" -v lo="$1" -v hi="$2" 'BEGIN { exit !(r >= lo && r <= hi) }' || { echo "Use a number from $1 to $2."; return 1; }; }
+query_port() { port "$2" >/dev/null || { port "$2"; return 1; }; [ "$2" != "$1" ] || { echo "The query port must be different from the game port."; return 1; }; }
+region() { case ${1,,} in usa|0) printf 'Usa' ;; eu|1) printf 'Eu' ;; oce|2) printf 'Oce' ;; *) echo "Use Usa, Eu or Oce."; return 1 ;; esac; }
 steam_ids() { [ -z "$1" ] || [[ $1 =~ ^[0-9]{17}(,[0-9]{17})*$ ]] || { echo "Use 17-digit SteamID64 numbers separated by commas, with no spaces."; return 1; }; }
 world_name() { [[ $1 =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo "Use 1 to 32 letters, digits, - or _."; return 1; }; }
 length() { [ "${#3}" -ge "$1" ] && [ "${#3}" -le "$2" ] || { echo "Use $1 to $2 characters."; return 1; }; }
@@ -162,6 +171,15 @@ json_get() {
     local value=""
     [ -f "$1" ] && value=$(jq -r --arg p "$2" '(try getpath($p | split(".")) catch null) | if . == null then empty else tostring end' "$1")
     if [ -n "$value" ]; then printf '%s' "$value"; else printf '%s' "$3"; fi
+}
+
+# Reads a key without caring about JSON key case.
+json_get_ci() {
+    local value=""
+    [ -f "$1" ] && value=$(jq -r --arg section "$2" --arg key "$3" '
+        def ci($name): to_entries | map(select(.key | ascii_downcase == ($name | ascii_downcase))) | last | .value;
+        (ci($section) // {}) | ci($key) // empty | tostring' "$1")
+    if [ -n "$value" ]; then printf '%s' "$value"; else printf '%s' "$4"; fi
 }
 
 # .env values are written in single quotes, which Docker Compose reads literally.
@@ -303,10 +321,15 @@ EXISTING_WORLD=no; [ -f "$WORLD_FILE" ] && EXISTING_WORLD=yes
 
 info ""
 info "Server"
-ask SERVER_NAME "Server name shown in the server browser" "$(json_get "$APP_FILE" NetworkConfig.Name "Everlast Dedicated Server")" length 1 64
-ask PORT "Game port (UDP)" "$(json_get "$APP_FILE" NetworkConfig.Port 9003)" port
-QUERY_PORT=$((27016 + PORT % 5))
-info "Players also need the query port $QUERY_PORT (UDP) for the server browser."
+ask SERVER_NAME "Server name shown in the server browser" "$(json_get_ci "$APP_FILE" NetworkConfig Name "Everlast Dedicated Server")" length 1 64
+ask PORT "Game port (UDP)" "$(json_get_ci "$APP_FILE" NetworkConfig Port 9003)" port
+query_default=$(json_get_ci "$APP_FILE" NetworkConfig QueryPort "")
+port "$query_default" >/dev/null 2>&1 && [ "$query_default" != "$PORT" ] || query_default=$((27016 + PORT % 5))
+ask QUERY_PORT "Query port (UDP) for the server browser" "$query_default" query_port "$PORT"
+region_default=$(json_get_ci "$APP_FILE" NetworkConfig Location Usa)
+if region_default=$(region "$region_default" 2>/dev/null); then :; else region_default=Usa; fi
+ask REGION "Region shown in the server browser (Usa, Eu or Oce)" "$region_default" region
+REGION=$(region "$REGION")
 ask MAX_PLAYERS "Max players online at once" "$(json_get "$WORLD_FILE" MaxPlayers 100)" range 1 1000
 ask_secret PASSWORD "Join password, empty means anyone can join" "$(json_get "$WORLD_FILE" ServerPassword "")"
 
@@ -345,6 +368,16 @@ ask GATHER_RATE "Gathering multiplier" "$(json_get "$WORLD_FILE" GatherRate 1)" 
 ask LOOT_RATE "Loot multiplier" "$(json_get "$WORLD_FILE" LootRate 1)" rate
 
 info ""
+info "Respawn scaling"
+respawn_default=$(json_get_ci "$APP_FILE" RespawnScalingConfig Enabled true); [ "$respawn_default" = false ] && respawn_default=no || respawn_default=yes
+ask RESPAWN_SCALING "Respawn monsters and resources faster when several players are nearby" "$respawn_default" yes_no
+if [ "$RESPAWN_SCALING" = yes ]; then
+    ask RESPAWN_RADIUS "How close players must be to count, in metres (1 to 500)" "$(json_get_ci "$APP_FILE" RespawnScalingConfig RadiusMeters 50)" range 1 500
+    ask RESPAWN_SPEEDUP "Speedup each extra nearby player adds (0 to 10)" "$(json_get_ci "$APP_FILE" RespawnScalingConfig PerPlayerSpeedup 0.5)" decimal_range 0 10
+    ask RESPAWN_FLOOR "Shortest respawn time as a fraction of normal (0.05 to 1)" "$(json_get_ci "$APP_FILE" RespawnScalingConfig MinMultiplier 0.25)" decimal_range 0.05 1
+fi
+
+info ""
 info "Characters"
 ask MAX_CHARACTERS "Characters per Steam account" "$(json_get "$WORLD_FILE" MaxCharactersPerUser 10)" range 1 100
 transfers_default=$(json_get "$WORLD_FILE" AcceptsTransfers false); [ "$transfers_default" = true ] && transfers_default=yes || transfers_default=no
@@ -375,12 +408,18 @@ info "  Data folder:     $DATA_DIR"
 info "  World:           $WORLD ($WORLD_DISPLAY_NAME), difficulty $DIFFICULTY$([ "$EXISTING_WORLD" = yes ] && echo ', existing world')"
 info "  Server name:     $SERVER_NAME"
 info "  Ports:           game $PORT UDP, query $QUERY_PORT UDP"
+info "  Region:          $REGION"
 info "  Max players:     $MAX_PLAYERS"
 info "  Join password:   $([ -n "$PASSWORD" ] && echo set || echo none)"
 info "  Admins:          ${ADMINS:-none}"
 info "  Description:     ${DESCRIPTION:-none}"
 info "  PvP:             $PVP, death penalty $DEATH_PENALTY"
 info "  Rates:           XP $XP_RATE, gathering $GATHER_RATE, loot $LOOT_RATE"
+if [ "$RESPAWN_SCALING" = yes ]; then
+    info "  Respawn scaling: yes, radius ${RESPAWN_RADIUS}m, speedup $RESPAWN_SPEEDUP, floor $RESPAWN_FLOOR"
+else
+    info "  Respawn scaling: no"
+fi
 info "  Characters:      $MAX_CHARACTERS per account, transfers $TRANSFERS, max import level $MAX_IMPORT_LEVEL, strip gear $STRIP_GEAR"
 info "  Import allowed:  ${IMPORT_ALLOWLIST:-everyone}"
 if [ -n "$ARCHIVE" ]; then source_text="archive $ARCHIVE"
@@ -427,9 +466,18 @@ fi
 
 # Settings files: only the installer's keys change. Every other key, also ones a newer server adds, is kept.
 app_json=$(if [ -f "$APP_FILE" ]; then cat "$APP_FILE"; else echo '{}'; fi)
-app_json=$(jq --arg name "$SERVER_NAME" --argjson port "$PORT" '
+[ "$RESPAWN_SCALING" = yes ] && respawn_json=true || respawn_json=false
+app_json=$(jq --arg name "$SERVER_NAME" --argjson port "$PORT" --argjson queryPort "$QUERY_PORT" --arg location "$REGION" \
+    --argjson enabled "$respawn_json" --arg scaling "$RESPAWN_SCALING" \
+    --argjson radius "${RESPAWN_RADIUS:-null}" --argjson speedup "${RESPAWN_SPEEDUP:-null}" --argjson floor "${RESPAWN_FLOOR:-null}" '
     def drop($names): with_entries(select((.key | ascii_downcase) as $k | $names | index($k) | not));
-    .NetworkConfig = ((.NetworkConfig // {}) | drop(["name", "port"])) + {Name: $name, Port: $port}' <<<"$app_json") || fail "Could not update $APP_FILE."
+    .NetworkConfig = ((.NetworkConfig // {}) | drop(["name", "port", "queryport", "location"]))
+        + {Name: $name, Port: $port, QueryPort: $queryPort, Location: $location}
+    | .RespawnScalingConfig = ((.RespawnScalingConfig // {}) | drop(["enabled"])) + {Enabled: $enabled}
+    | if $scaling == "yes" then
+        .RespawnScalingConfig = (.RespawnScalingConfig | drop(["radiusmeters", "perplayerspeedup", "minmultiplier"]))
+            + {RadiusMeters: $radius, PerPlayerSpeedup: $speedup, MinMultiplier: $floor}
+      else . end' <<<"$app_json") || fail "Could not update $APP_FILE."
 
 [ "$PVP" = yes ] && pvp_json=true || pvp_json=false
 [ "$TRANSFERS" = yes ] && transfers_json=true || transfers_json=false

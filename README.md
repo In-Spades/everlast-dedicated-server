@@ -44,14 +44,15 @@ Press Enter to accept the default shown in brackets. Each question also has a co
 | Group | Settings |
 |---|---|
 | Install | Install folder, data folder for worlds and settings, world folder name |
-| Server | Server name in the server browser, game port, max players, join password (empty means anyone can join) |
+| Server | Server name in the server browser, game port, query port, region (Usa, Eu or Oce), max players, join password (empty means anyone can join) |
 | Access | Admin Steam IDs (optional, they grant nothing in the released server for now) |
 | World | Difficulty (new worlds only), the world name players see, a short description |
 | Gameplay | PvP, death penalty (items go to Death's shop, or players keep them), XP, gathering and loot multipliers from 0.1 to 10 |
+| Respawns | Whether monsters and resources respawn faster when several players are nearby, and if so how close players must be, how much each extra player speeds respawns up, and the shortest a respawn can get |
 | Characters | Characters per Steam account, whether characters from other worlds may arrive, their highest level, whether their gear is removed, who may bring them |
 | Running | Keep it running, open the firewall |
 
-Run the installer again at any time to change settings. It shows the current values as defaults, keeps the world and every setting it does not ask about, and restarts the server with a 2 minute warning to players.
+Run the installer again at any time to change settings. It shows the current values as defaults, keeps the world and every setting it does not ask about, and restarts the server with a 2 minute warning to players (straight away when nobody is online).
 
 ## Linux (Docker)
 

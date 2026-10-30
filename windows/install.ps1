@@ -19,7 +19,11 @@ World folder name.
 .PARAMETER ServerName
 Name shown in the server browser.
 .PARAMETER Port
-UDP game port. The query port is derived from it.
+UDP game port.
+.PARAMETER QueryPort
+UDP query port for the server browser.
+.PARAMETER Region
+Region shown in the server browser. Use Usa, Eu, or Oce.
 .PARAMETER MaxPlayers
 Maximum players from 1 to 1000.
 .PARAMETER Password
@@ -42,6 +46,14 @@ Experience multiplier from 0.1 to 10.
 Gathering multiplier from 0.1 to 10.
 .PARAMETER LootRate
 Loot multiplier from 0.1 to 10.
+.PARAMETER RespawnScaling
+Whether monsters and resources respawn faster near several players. Use yes or no.
+.PARAMETER RespawnRadius
+Distance in metres from 1 to 500 for nearby players.
+.PARAMETER RespawnSpeedup
+Speedup per extra nearby player from 0 to 10.
+.PARAMETER RespawnFloor
+Shortest respawn time as a fraction of normal from 0.05 to 1.
 .PARAMETER MaxCharacters
 Characters per Steam account from 1 to 100.
 .PARAMETER Transfers
@@ -74,6 +86,8 @@ param(
     [string]$World,
     [string]$ServerName,
     [Nullable[int]]$Port,
+    [Nullable[int]]$QueryPort,
+    [string]$Region,
     [Nullable[int]]$MaxPlayers,
     [AllowEmptyString()][string]$Password,
     [AllowEmptyString()][string]$Admins,
@@ -85,6 +99,10 @@ param(
     [Nullable[decimal]]$XpRate,
     [Nullable[decimal]]$GatherRate,
     [Nullable[decimal]]$LootRate,
+    [string]$RespawnScaling,
+    [Nullable[decimal]]$RespawnRadius,
+    [Nullable[decimal]]$RespawnSpeedup,
+    [Nullable[decimal]]$RespawnFloor,
     [Nullable[int]]$MaxCharacters,
     [string]$Transfers,
     [Nullable[int]]$MaxImportLevel,
@@ -112,6 +130,12 @@ function ConvertTo-ReadableJson($Value, [int]$Depth) {
 }
 
 function Set-JsonProperty($Object, [string]$Name, $Value) {
+    $matches = @($Object.PSObject.Properties | Where-Object { $_.Name.Equals($Name, [StringComparison]::OrdinalIgnoreCase) })
+    foreach ($property in $matches) {
+        if (-not $property.Name.Equals($Name, [StringComparison]::Ordinal)) {
+            $Object.PSObject.Properties.Remove($property.Name)
+        }
+    }
     if ($null -ne $Object.PSObject.Properties[$Name]) {
         $Object.$Name = $Value
     }
@@ -152,8 +176,9 @@ function Get-JsonFile([string]$Path) {
 }
 
 function Get-Property($Object, [string]$Name, $Fallback) {
-    if ($null -ne $Object -and $null -ne $Object.PSObject.Properties[$Name]) {
-        return $Object.$Name
+    if ($null -ne $Object) {
+        $property = $Object.PSObject.Properties | Where-Object { $_.Name.Equals($Name, [StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
+        if ($null -ne $property) { return $property.Value }
     }
     return $Fallback
 }
@@ -244,10 +269,10 @@ function Get-IntOption($Value, [bool]$WasPassed, [string]$Prompt, [int]$Default,
     }
 }
 
-function Get-DecimalOption($Value, [bool]$WasPassed, [string]$Prompt, [decimal]$Default) {
+function Get-DecimalOption($Value, [bool]$WasPassed, [string]$Prompt, [decimal]$Default, [decimal]$Minimum = 0.1, [decimal]$Maximum = 10) {
     if ($WasPassed) {
-        if ($Value -lt 0.1 -or $Value -gt 10) {
-            throw "$Prompt must be from 0.1 to 10."
+        if ($Value -lt $Minimum -or $Value -gt $Maximum) {
+            throw "$Prompt must be from $Minimum to $Maximum."
         }
         return [decimal]$Value
     }
@@ -255,12 +280,13 @@ function Get-DecimalOption($Value, [bool]$WasPassed, [string]$Prompt, [decimal]$
         return $Default
     }
     while ($true) {
-        $answer = Read-Plain $Prompt ([string]$Default)
+        $defaultText = $Default.ToString([Globalization.CultureInfo]::InvariantCulture)
+        $answer = Read-Plain $Prompt $defaultText
         $parsed = [decimal]0
-        if ([decimal]::TryParse($answer, [Globalization.NumberStyles]::Number, [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed) -and $parsed -ge 0.1 -and $parsed -le 10) {
+        if ([decimal]::TryParse($answer, [Globalization.NumberStyles]::Number, [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed) -and $parsed -ge $Minimum -and $parsed -le $Maximum) {
             return $parsed
         }
-        Write-Host 'Enter a number from 0.1 to 10. Use a period for the decimal point.' -ForegroundColor Yellow
+        Write-Host "Enter a number from $Minimum to $Maximum. Use a period for the decimal point." -ForegroundColor Yellow
     }
 }
 
@@ -409,8 +435,21 @@ Write-Host ''
 Write-Host 'Server' -ForegroundColor Cyan
 $ServerName = Get-TextOption $ServerName ($PSBoundParameters.ContainsKey('ServerName')) 'Server name shown in the server browser' ([string](Get-Property $existingNetwork 'Name' 'Everlast Dedicated Server')) { param($v) -not [string]::IsNullOrWhiteSpace($v) -and $v.Length -le 64 } 'Enter 1 to 64 characters.'
 $Port = Get-IntOption $Port ($PSBoundParameters.ContainsKey('Port')) 'Game port, UDP' ([int](Get-Property $existingNetwork 'Port' 9003)) 1 65535
-$queryPort = 27016 + ($Port % 5)
-Write-Host "The query port is $queryPort UDP."
+$derivedQueryPort = 27016 + ($Port % 5)
+$existingQueryPort = [int](Get-Property $existingNetwork 'QueryPort' 0)
+$queryPortDefault = if ($existingQueryPort -gt 0 -and $existingQueryPort -le 65535 -and $existingQueryPort -ne $Port) { $existingQueryPort } else { $derivedQueryPort }
+$QueryPort = Get-IntOption $QueryPort ($PSBoundParameters.ContainsKey('QueryPort')) 'Query port (UDP) for the server browser' $queryPortDefault 1 65535
+if ($QueryPort -eq $Port) {
+    if ($PSBoundParameters.ContainsKey('QueryPort') -or $Yes) { throw 'Query port must be different from the game port.' }
+    do {
+        Write-Host 'Query port must be different from the game port.' -ForegroundColor Yellow
+        $QueryPort = Get-IntOption $null $false 'Query port (UDP) for the server browser' $queryPortDefault 1 65535
+    } while ($QueryPort -eq $Port)
+}
+$existingRegion = [string](Get-Property $existingNetwork 'Location' 'Usa')
+$regionDefault = switch ($existingRegion.ToLowerInvariant()) { '0' { 'Usa' } 'usa' { 'Usa' } '1' { 'Eu' } 'eu' { 'Eu' } '2' { 'Oce' } 'oce' { 'Oce' } default { 'Usa' } }
+$Region = Get-TextOption $Region ($PSBoundParameters.ContainsKey('Region')) 'Region shown in the server browser (Usa, Eu or Oce)' $regionDefault { param($v) $v -match '^(?i:usa|eu|oce)$' } 'Enter Usa, Eu or Oce.'
+$Region = switch ($Region.ToLowerInvariant()) { 'usa' { 'Usa' } 'eu' { 'Eu' } 'oce' { 'Oce' } }
 $MaxPlayers = Get-IntOption $MaxPlayers ($PSBoundParameters.ContainsKey('MaxPlayers')) 'Max players online at once' ([int](Get-Property $existingWorld 'MaxPlayers' 100)) 1 1000
 
 Write-Host ''
@@ -451,6 +490,16 @@ $XpRate = Get-DecimalOption $XpRate ($PSBoundParameters.ContainsKey('XpRate')) '
 $GatherRate = Get-DecimalOption $GatherRate ($PSBoundParameters.ContainsKey('GatherRate')) 'Gathering multiplier' ([decimal](Get-Property $existingWorld 'GatherRate' 1))
 $LootRate = Get-DecimalOption $LootRate ($PSBoundParameters.ContainsKey('LootRate')) 'Loot multiplier' ([decimal](Get-Property $existingWorld 'LootRate' 1))
 
+$existingRespawn = if ($null -ne $existingApp) { Get-Property $existingApp 'RespawnScalingConfig' $null } else { $null }
+Write-Host ''
+Write-Host 'Respawn scaling' -ForegroundColor Cyan
+$RespawnScalingEnabled = Get-YesNoOption $RespawnScaling ($PSBoundParameters.ContainsKey('RespawnScaling')) 'Respawn monsters and resources faster when several players are nearby' ([bool](Get-Property $existingRespawn 'Enabled' $true))
+if ($RespawnScalingEnabled) {
+    $RespawnRadius = Get-DecimalOption $RespawnRadius ($PSBoundParameters.ContainsKey('RespawnRadius')) 'How close players must be to count, in metres (1 to 500)' ([decimal](Get-Property $existingRespawn 'RadiusMeters' 50)) 1 500
+    $RespawnSpeedup = Get-DecimalOption $RespawnSpeedup ($PSBoundParameters.ContainsKey('RespawnSpeedup')) 'Speedup each extra nearby player adds (0 to 10)' ([decimal](Get-Property $existingRespawn 'PerPlayerSpeedup' 0.5)) 0 10
+    $RespawnFloor = Get-DecimalOption $RespawnFloor ($PSBoundParameters.ContainsKey('RespawnFloor')) 'Shortest respawn time as a fraction of normal (0.05 to 1)' ([decimal](Get-Property $existingRespawn 'MinMultiplier' 0.25)) 0.05 1
+}
+
 Write-Host ''
 Write-Host 'Characters' -ForegroundColor Cyan
 $MaxCharacters = Get-IntOption $MaxCharacters ($PSBoundParameters.ContainsKey('MaxCharacters')) 'Characters per Steam account' ([int](Get-Property $existingWorld 'MaxCharactersPerUser' 10)) 1 100
@@ -487,11 +536,13 @@ Write-Host "Install folder: $InstallDir"
 Write-Host "Data folder: $DataDir"
 Write-Host "World: $World ($WorldDisplayName)"
 Write-Host "Server: $ServerName"
-Write-Host "Game and query ports: $Port UDP, $queryPort UDP"
+Write-Host "Region: $Region"
+Write-Host "Game and query ports: $Port UDP, $QueryPort UDP"
 Write-Host "Players and difficulty: $MaxPlayers, $Difficulty"
 Write-Host "Join password: $(if ([string]::IsNullOrEmpty($Password)) { 'empty' } else { 'set' })"
 Write-Host "Admins: $(if ([string]::IsNullOrEmpty($Admins)) { 'empty' } else { $Admins })"
 Write-Host "Rates: XP $XpRate, gather $GatherRate, loot $LootRate"
+Write-Host "Respawn scaling: $(if ($RespawnScalingEnabled) { "yes, radius $RespawnRadius m, speedup $RespawnSpeedup, floor $RespawnFloor" } else { 'no' })"
 Write-Host "Transfers: $TransfersEnabled"
 Write-Host "Start at logon: $ServiceEnabled"
 Write-Host "Windows Firewall: $FirewallEnabled"
@@ -630,6 +681,19 @@ if ($null -eq $networkSettings) {
 }
 Set-JsonProperty $networkSettings 'Name' $ServerName
 Set-JsonProperty $networkSettings 'Port' $Port
+Set-JsonProperty $networkSettings 'QueryPort' $QueryPort
+Set-JsonProperty $networkSettings 'Location' $Region
+$respawnSettings = Get-Property $appSettings 'RespawnScalingConfig' $null
+if ($null -eq $respawnSettings) {
+    $respawnSettings = [PSCustomObject][ordered]@{}
+    Set-JsonProperty $appSettings 'RespawnScalingConfig' $respawnSettings
+}
+Set-JsonProperty $respawnSettings 'Enabled' $RespawnScalingEnabled
+if ($RespawnScalingEnabled) {
+    Set-JsonProperty $respawnSettings 'RadiusMeters' $RespawnRadius
+    Set-JsonProperty $respawnSettings 'PerPlayerSpeedup' $RespawnSpeedup
+    Set-JsonProperty $respawnSettings 'MinMultiplier' $RespawnFloor
+}
 Write-Utf8NoBom $appSettingsPath ((ConvertTo-ReadableJson $appSettings 20) + [Environment]::NewLine)
 
 $installedScriptPath = Join-Path $InstallDir 'install.ps1'
@@ -785,7 +849,7 @@ if ($FirewallEnabled) {
     $firewallCode = @"
 Get-NetFirewallRule -DisplayName '$($rulePrefix.Replace("'", "''"))*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 New-NetFirewallRule -DisplayName '$($rulePrefix.Replace("'", "''")) game' -Direction Inbound -Action Allow -Protocol UDP -LocalPort $Port | Out-Null
-New-NetFirewallRule -DisplayName '$($rulePrefix.Replace("'", "''")) query' -Direction Inbound -Action Allow -Protocol UDP -LocalPort $queryPort | Out-Null
+New-NetFirewallRule -DisplayName '$($rulePrefix.Replace("'", "''")) query' -Direction Inbound -Action Allow -Protocol UDP -LocalPort $QueryPort | Out-Null
 "@
     Write-Host 'Adding Windows Firewall rules.'
     Invoke-FirewallScript $firewallCode
@@ -844,7 +908,7 @@ Write-Host ''
 Write-Host 'Everlast Dedicated Server is installed.' -ForegroundColor Green
 Write-Host "Server files: $serverDir"
 Write-Host "World data: $DataDir"
-Write-Host "Forward $Port UDP and $queryPort UDP in your router."
+Write-Host "Forward $Port UDP and $QueryPort UDP in your router."
 if ($ServiceEnabled) {
     Write-Host "Stop: powershell -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'stop-server.ps1')`""
     Write-Host "Start: powershell -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'start-server.ps1')`""

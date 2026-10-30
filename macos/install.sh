@@ -35,6 +35,8 @@ Every option is prompted unless it is passed here or --yes is used.
   --world NAME             World folder name
   --server-name NAME       Name shown in the server browser
   --port PORT              UDP game port
+  --query-port PORT        UDP server browser query port
+  --region NAME            Server browser region: Usa, Eu, or Oce
   --max-players NUMBER     Maximum players from 1 to 1000
   --password PASSWORD      Join password
   --admins IDS             Comma-separated SteamID64 admin IDs
@@ -46,6 +48,10 @@ Every option is prompted unless it is passed here or --yes is used.
   --xp-rate NUMBER         Multiplier from 0.1 to 10
   --gather-rate NUMBER     Multiplier from 0.1 to 10
   --loot-rate NUMBER       Multiplier from 0.1 to 10
+  --respawn-scaling yes|no
+  --respawn-radius NUMBER  Nearby player radius from 1 to 500 metres
+  --respawn-speedup NUMBER Speedup per extra player from 0 to 10
+  --respawn-floor NUMBER   Minimum respawn multiplier from 0.05 to 1
   --max-characters NUMBER  Characters per Steam account from 1 to 100
   --transfers yes|no
   --max-import-level NUMBER
@@ -62,7 +68,7 @@ EOF
 }
 
 # Mark flag values separately so an explicitly empty value is still respected.
-for key in INSTALL_DIR DATA_DIR WORLD SERVER_NAME PORT MAX_PLAYERS PASSWORD ADMINS DIFFICULTY WORLD_DISPLAY_NAME DESCRIPTION PVP DEATH_PENALTY XP_RATE GATHER_RATE LOOT_RATE MAX_CHARACTERS TRANSFERS MAX_IMPORT_LEVEL STRIP_GEAR IMPORT_ALLOWLIST SERVICE FIREWALL; do
+for key in INSTALL_DIR DATA_DIR WORLD SERVER_NAME PORT QUERY_PORT REGION MAX_PLAYERS PASSWORD ADMINS DIFFICULTY WORLD_DISPLAY_NAME DESCRIPTION PVP DEATH_PENALTY XP_RATE GATHER_RATE LOOT_RATE RESPAWN_SCALING RESPAWN_RADIUS RESPAWN_SPEEDUP RESPAWN_FLOOR MAX_CHARACTERS TRANSFERS MAX_IMPORT_LEVEL STRIP_GEAR IMPORT_ALLOWLIST SERVICE FIREWALL; do
     eval "${key}_SET=no"
 done
 
@@ -79,6 +85,8 @@ while [ "$#" -gt 0 ]; do
         --world) need_value "$@"; WORLD=$2; WORLD_SET=yes; shift 2 ;;
         --server-name) need_value "$@"; SERVER_NAME=$2; SERVER_NAME_SET=yes; shift 2 ;;
         --port) need_value "$@"; PORT=$2; PORT_SET=yes; shift 2 ;;
+        --query-port) need_value "$@"; QUERY_PORT=$2; QUERY_PORT_SET=yes; shift 2 ;;
+        --region) need_value "$@"; REGION=$2; REGION_SET=yes; shift 2 ;;
         --max-players) need_value "$@"; MAX_PLAYERS=$2; MAX_PLAYERS_SET=yes; shift 2 ;;
         --password) need_value "$@"; PASSWORD=$2; PASSWORD_SET=yes; shift 2 ;;
         --admins) need_value "$@"; ADMINS=$2; ADMINS_SET=yes; shift 2 ;;
@@ -90,6 +98,10 @@ while [ "$#" -gt 0 ]; do
         --xp-rate) need_value "$@"; XP_RATE=$2; XP_RATE_SET=yes; shift 2 ;;
         --gather-rate) need_value "$@"; GATHER_RATE=$2; GATHER_RATE_SET=yes; shift 2 ;;
         --loot-rate) need_value "$@"; LOOT_RATE=$2; LOOT_RATE_SET=yes; shift 2 ;;
+        --respawn-scaling) need_value "$@"; RESPAWN_SCALING=$2; RESPAWN_SCALING_SET=yes; shift 2 ;;
+        --respawn-radius) need_value "$@"; RESPAWN_RADIUS=$2; RESPAWN_RADIUS_SET=yes; shift 2 ;;
+        --respawn-speedup) need_value "$@"; RESPAWN_SPEEDUP=$2; RESPAWN_SPEEDUP_SET=yes; shift 2 ;;
+        --respawn-floor) need_value "$@"; RESPAWN_FLOOR=$2; RESPAWN_FLOOR_SET=yes; shift 2 ;;
         --max-characters) need_value "$@"; MAX_CHARACTERS=$2; MAX_CHARACTERS_SET=yes; shift 2 ;;
         --transfers) need_value "$@"; TRANSFERS=$2; TRANSFERS_SET=yes; shift 2 ;;
         --max-import-level) need_value "$@"; MAX_IMPORT_LEVEL=$2; MAX_IMPORT_LEVEL_SET=yes; shift 2 ;;
@@ -145,10 +157,34 @@ json_get() {
     printf '%s' "$jg_default"
 }
 
+json_get_ci() {
+    jgc_file=$1; jgc_path=$2; jgc_default=$3
+    [ -f "$jgc_file" ] || { printf '%s' "$jgc_default"; return; }
+    SETTINGS_FILE=$jgc_file SETTINGS_PATH=$jgc_path osascript -l JavaScript <<'JXA' 2>/dev/null || printf '%s' "$jgc_default"
+ObjC.import('Foundation');
+function env(name) { return ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey(name)); }
+var text = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(env('SETTINGS_FILE'), $.NSUTF8StringEncoding, null));
+var value = JSON.parse(text);
+env('SETTINGS_PATH').split('.').forEach(function (part) {
+    if (!value || typeof value !== 'object') throw new Error('missing');
+    var wanted = part.toLowerCase(), found = Object.keys(value).filter(function (key) { return key.toLowerCase() === wanted; });
+    if (!found.length) throw new Error('missing');
+    value = value[found[found.length - 1]];
+});
+if (typeof value === 'boolean') value ? 'true' : 'false';
+else if (typeof value === 'string' || typeof value === 'number') String(value);
+else throw new Error('invalid');
+JXA
+}
+
 validate_yes_no() { [ "$1" = yes ] || [ "$1" = no ]; }
 validate_port() { case "$1" in ''|*[!0-9]*) return 1;; esac; [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
 validate_uint_range() { case "$1" in ''|*[!0-9]*) return 1;; esac; [ "$1" -ge "$2" ] && [ "$1" -le "$3" ]; }
 validate_rate() { awk 'BEGIN { exit !(ARGV[1] ~ /^[0-9]+([.][0-9]+)?$/ && ARGV[1] >= 0.1 && ARGV[1] <= 10) }' "$1"; }
+validate_query_port() { validate_port "$1" && [ "$1" -ne "$PORT" ]; }
+validate_decimal_range() { LC_ALL=C awk 'BEGIN { exit !(ARGV[1] ~ /^[0-9]+([.][0-9]+)?$/ && ARGV[1] >= ARGV[2] && ARGV[1] <= ARGV[3]) }' "$1" "$2" "$3"; }
+validate_region() { case $(printf '%s' "$1" | tr '[:upper:]' '[:lower:]') in usa|eu|oce|0|1|2) return 0;; *) return 1;; esac; }
+canonical_region() { case $(printf '%s' "$1" | tr '[:upper:]' '[:lower:]') in usa|0) printf Usa;; eu|1) printf Eu;; oce|2) printf Oce;; esac; }
 validate_ids() {
     [ -z "$1" ] && return 0
     oldifs=$IFS; IFS=,
@@ -287,17 +323,25 @@ EXISTING_WORLD=no
 validate_json_file "$APP_FILE"
 validate_json_file "$WORLD_FILE"
 
-server_name_default=$(json_get "$APP_FILE" NetworkConfig.Name "Everlast Dedicated Server")
-port_default=$(json_get "$APP_FILE" NetworkConfig.Port 9003)
-
+server_name_default=$(json_get_ci "$APP_FILE" NetworkConfig.Name "Everlast Dedicated Server")
+port_default=$(json_get_ci "$APP_FILE" NetworkConfig.Port 9003)
 info ""
 info "Server"
 prompt_value SERVER_NAME "Server name shown in the server browser" "$server_name_default"
 reprompt SERVER_NAME "Server name must be 1 to 64 characters." validate_server_name
 prompt_value PORT "Game port (UDP)" "$port_default"
 reprompt PORT "Game port must be a number from 1 to 65535." validate_port
-QUERY_PORT=$((27016 + PORT % 5))
-info "The query port is $QUERY_PORT UDP."
+query_default=$(json_get_ci "$APP_FILE" NetworkConfig.QueryPort "")
+validate_port "$query_default" || query_default=$((27016 + PORT % 5))
+[ "$query_default" -ne "$PORT" ] || query_default=$((27016 + PORT % 5))
+prompt_value QUERY_PORT "Query port (UDP) for the server browser" "$query_default"
+reprompt QUERY_PORT "Query port must be a number from 1 to 65535 and different from the game port." validate_query_port
+region_default=$(json_get_ci "$APP_FILE" NetworkConfig.Location Usa)
+validate_region "$region_default" || region_default=Usa
+region_default=$(canonical_region "$region_default")
+prompt_value REGION "Region shown in the server browser (Usa, Eu or Oce)" "$region_default"
+reprompt REGION "Region must be Usa, Eu or Oce." validate_region
+REGION=$(canonical_region "$REGION")
 prompt_value MAX_PLAYERS "Max players online at once" "$(json_get "$WORLD_FILE" MaxPlayers 100)"
 reprompt MAX_PLAYERS "Max players must be a number from 1 to 1000." validate_uint_range 1 1000
 prompt_secret PASSWORD "Join password, empty means anyone can join" "$(json_get "$WORLD_FILE" ServerPassword "")"
@@ -344,6 +388,24 @@ prompt_value LOOT_RATE "Loot multiplier from 0.1 to 10" "$(json_get "$WORLD_FILE
 reprompt LOOT_RATE "Loot multiplier must be a number from 0.1 to 10." validate_rate
 
 info ""
+info "Respawn scaling"
+respawn_default=$(json_get_ci "$APP_FILE" RespawnScalingConfig.Enabled true); [ "$respawn_default" = true ] && respawn_default=yes || respawn_default=no
+prompt_value RESPAWN_SCALING "Respawn monsters and resources faster when several players are nearby (yes or no)" "$respawn_default"
+reprompt RESPAWN_SCALING "Respawn scaling must be yes or no." validate_yes_no
+if [ "$RESPAWN_SCALING" = yes ]; then
+    prompt_value RESPAWN_RADIUS "How close players must be to count, in metres (1 to 500)" "$(json_get_ci "$APP_FILE" RespawnScalingConfig.RadiusMeters 50)"
+    reprompt RESPAWN_RADIUS "Respawn radius must be a number from 1 to 500." validate_decimal_range 1 500
+    prompt_value RESPAWN_SPEEDUP "Speedup each extra nearby player adds (0 to 10)" "$(json_get_ci "$APP_FILE" RespawnScalingConfig.PerPlayerSpeedup 0.5)"
+    reprompt RESPAWN_SPEEDUP "Respawn speedup must be a number from 0 to 10." validate_decimal_range 0 10
+    prompt_value RESPAWN_FLOOR "Shortest respawn time as a fraction of normal (0.05 to 1)" "$(json_get_ci "$APP_FILE" RespawnScalingConfig.MinMultiplier 0.25)"
+    reprompt RESPAWN_FLOOR "Respawn floor must be a number from 0.05 to 1." validate_decimal_range 0.05 1
+else
+    RESPAWN_RADIUS=$(json_get_ci "$APP_FILE" RespawnScalingConfig.RadiusMeters 50)
+    RESPAWN_SPEEDUP=$(json_get_ci "$APP_FILE" RespawnScalingConfig.PerPlayerSpeedup 0.5)
+    RESPAWN_FLOOR=$(json_get_ci "$APP_FILE" RespawnScalingConfig.MinMultiplier 0.25)
+fi
+
+info ""
 info "Characters"
 prompt_value MAX_CHARACTERS "Characters per Steam account" "$(json_get "$WORLD_FILE" MaxCharactersPerUser 10)"
 reprompt MAX_CHARACTERS "Characters must be a number from 1 to 100." validate_uint_range 1 100
@@ -368,9 +430,9 @@ reprompt FIREWALL "Firewall must be yes or no." validate_yes_no
 
 info ""
 info "Install summary"
-printf 'Install folder: %s\nData folder: %s\nWorld: %s\nServer name: %s\nGame port: %s UDP\nQuery port: %s UDP\nMax players: %s\nPassword: ' "$INSTALL_DIR" "$DATA_DIR" "$WORLD" "$SERVER_NAME" "$PORT" "$QUERY_PORT" "$MAX_PLAYERS"
+printf 'Install folder: %s\nData folder: %s\nWorld: %s\nServer name: %s\nGame port: %s UDP\nQuery port: %s UDP\nRegion: %s\nMax players: %s\nPassword: ' "$INSTALL_DIR" "$DATA_DIR" "$WORLD" "$SERVER_NAME" "$PORT" "$QUERY_PORT" "$REGION" "$MAX_PLAYERS"
 [ -n "$PASSWORD" ] && info set || info empty
-printf 'Admins: %s\nDifficulty: %s\nWorld display name: %s\nDescription: %s\nPvP: %s\nDeath penalty: %s\nXP rate: %s\nGather rate: %s\nLoot rate: %s\nMax characters: %s\nTransfers: %s\nMax import level: %s\nStrip gear: %s\nImport allowlist: %s\nService: %s\nFirewall: %s\n' "$ADMINS" "$DIFFICULTY" "$WORLD_DISPLAY_NAME" "$DESCRIPTION" "$PVP" "$DEATH_PENALTY" "$XP_RATE" "$GATHER_RATE" "$LOOT_RATE" "$MAX_CHARACTERS" "$TRANSFERS" "$MAX_IMPORT_LEVEL" "$STRIP_GEAR" "$IMPORT_ALLOWLIST" "$SERVICE" "$FIREWALL"
+printf 'Admins: %s\nDifficulty: %s\nWorld display name: %s\nDescription: %s\nPvP: %s\nDeath penalty: %s\nXP rate: %s\nGather rate: %s\nLoot rate: %s\nRespawn scaling: %s\nRespawn radius: %s\nRespawn speedup: %s\nRespawn floor: %s\nMax characters: %s\nTransfers: %s\nMax import level: %s\nStrip gear: %s\nImport allowlist: %s\nService: %s\nFirewall: %s\n' "$ADMINS" "$DIFFICULTY" "$WORLD_DISPLAY_NAME" "$DESCRIPTION" "$PVP" "$DEATH_PENALTY" "$XP_RATE" "$GATHER_RATE" "$LOOT_RATE" "$RESPAWN_SCALING" "$RESPAWN_RADIUS" "$RESPAWN_SPEEDUP" "$RESPAWN_FLOOR" "$MAX_CHARACTERS" "$TRANSFERS" "$MAX_IMPORT_LEVEL" "$STRIP_GEAR" "$IMPORT_ALLOWLIST" "$SERVICE" "$FIREWALL"
 if [ "$YES" != yes ]; then
     printf 'Continue with the install? [yes]: '
     IFS= read -r proceed || fail "Input ended before confirmation."
@@ -464,11 +526,13 @@ LAST_PLAYED=$(json_get "$WORLD_FILE" LastPlayedDate "$CREATED")
 ORIGIN=$(json_get "$WORLD_FILE" OriginServerId "")
 
 merge_json_settings() {
-    SETTINGS_FILE=$APP_FILE SERVER_NAME=$SERVER_NAME PORT=$PORT \
+    [ "$RESPAWN_SCALING" = yes ] && RESPAWN_JSON=true || RESPAWN_JSON=false
+    SETTINGS_FILE=$APP_FILE SERVER_NAME=$SERVER_NAME PORT=$PORT QUERY_PORT=$QUERY_PORT REGION=$REGION RESPAWN_JSON=$RESPAWN_JSON RESPAWN_RADIUS=$RESPAWN_RADIUS RESPAWN_SPEEDUP=$RESPAWN_SPEEDUP RESPAWN_FLOOR=$RESPAWN_FLOOR \
     osascript -l JavaScript <<'JXA' >/dev/null || fail "Could not merge settings into $APP_FILE."
 ObjC.import('Foundation');
 function env(name) { return ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey(name)); }
 function objectOrEmpty(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+function removeKey(object, name) { Object.keys(object).forEach(function (key) { if (key.toLowerCase() === name.toLowerCase()) delete object[key]; }); }
 var file = env('SETTINGS_FILE');
 var root = {};
 if ($.NSFileManager.defaultManager.fileExistsAtPath(file)) {
@@ -476,8 +540,16 @@ if ($.NSFileManager.defaultManager.fileExistsAtPath(file)) {
     try { root = JSON.parse(text); } catch (error) { throw new Error('Existing JSON is invalid: ' + file); }
     if (!root || typeof root !== 'object' || Array.isArray(root)) throw new Error('Existing JSON root is not an object: ' + file);
 }
-root.NetworkConfig = objectOrEmpty(root.NetworkConfig);
-root.NetworkConfig.Name = env('SERVER_NAME'); root.NetworkConfig.Port = Number(env('PORT'));
+var networkKeys = Object.keys(root).filter(function (key) { return key.toLowerCase() === 'networkconfig'; });
+var network = networkKeys.length ? objectOrEmpty(root[networkKeys[networkKeys.length - 1]]) : {};
+networkKeys.forEach(function (key) { delete root[key]; });
+['Name', 'Port', 'QueryPort', 'Location'].forEach(function (key) { removeKey(network, key); });
+network.Name = env('SERVER_NAME'); network.Port = Number(env('PORT')); network.QueryPort = Number(env('QUERY_PORT')); network.Location = env('REGION'); root.NetworkConfig = network;
+var respawnKeys = Object.keys(root).filter(function (key) { return key.toLowerCase() === 'respawnscalingconfig'; });
+var respawn = respawnKeys.length ? objectOrEmpty(root[respawnKeys[respawnKeys.length - 1]]) : {};
+respawnKeys.forEach(function (key) { delete root[key]; }); removeKey(respawn, 'Enabled'); respawn.Enabled = env('RESPAWN_JSON') === 'true';
+if (respawn.Enabled) { ['RadiusMeters', 'PerPlayerSpeedup', 'MinMultiplier'].forEach(function (key) { removeKey(respawn, key); }); respawn.RadiusMeters = Number(env('RESPAWN_RADIUS')); respawn.PerPlayerSpeedup = Number(env('RESPAWN_SPEEDUP')); respawn.MinMultiplier = Number(env('RESPAWN_FLOOR')); }
+root.RespawnScalingConfig = respawn;
 var output = JSON.stringify(root, null, 2) + '\n';
 if (!$(output).writeToFileAtomicallyEncodingError(file, true, $.NSUTF8StringEncoding, null)) throw new Error('Could not write ' + file);
 JXA
