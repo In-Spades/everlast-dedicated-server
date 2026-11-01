@@ -154,9 +154,10 @@ The server reads both files every time it starts, so restart it after an edit. A
 | `Difficulty` | `Psychic` | `Hylic`, `Psychic`, `Pneumonic`, `Pyrrhic`, `Sufferer` or `OneShot`. Set it before the world's first start and never change it afterwards |
 | `MaxCharactersPerUser` | 10 | Characters per Steam account. The installer accepts 1 to 100 |
 | `AcceptsTransfers` | `false` | Whether characters from other worlds may arrive. One Shot worlds never accept them |
+| `TransferExceptionIds` | empty | SteamID64s allowed to import even when `AcceptsTransfers` is `false`, separated by commas. Empty means no exceptions, so normal public fresh starts stay transfers-off |
 | `MaxImportLevel` | 0 | Highest level an arriving character may have. 0 means any |
 | `StripGearOnImport` | `false` | Remove an arriving character's gear |
-| `ImportAllowlist` | empty | SteamID64s allowed to bring characters, separated by commas. Empty means everyone |
+| `ImportAllowlist` | empty | SteamID64s allowed to bring characters when transfers are accepted, separated by commas. Empty means everyone. This is separate from `TransferExceptionIds` |
 | `Admins` | empty | SteamID64s separated by commas. Grants nothing in the released server for now |
 
 The server manages `OriginServerId`, `CreatedDate` and `LastPlayedDate` itself. Leave them as they are.
