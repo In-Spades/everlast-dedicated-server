@@ -27,7 +27,7 @@ Do not delete the server's `Raptor.Physics/navcache` folder. The server ships wi
 
 ## Before you start
 
-- **Admin commands.** In-game admin roles are turned off in the released server, so the installer's admin Steam IDs grant nothing for now. To manage a running server, run the server program again with `--admin status`, `--admin say <text>`, `--admin kick <uid>` (the uid comes from `status`) or `--admin stop`, followed by the same `--LaunchConfig:DataRoot` and `--LaunchConfig:WorldName` arguments the server runs with.
+- **Admin commands.** In-game admin roles are turned off in the released server, so the installer's admin Steam IDs grant nothing for now. To manage a running server, run the server program again with `--admin status`, `--admin say <text>`, `--admin kick <uid>` (the uid comes from `status`), `--admin maxplayers <count>` or `--admin stop`, followed by the same `--LaunchConfig:DataRoot` and `--LaunchConfig:WorldName` arguments the server runs with. `maxplayers` sets the player limit (1 to 1000) right away, updates the server browser and saves the new limit to `worldsettings.json`, so it stays after a restart. Nobody online is removed when you lower it: new players are turned away until there is room.
 - **Ports.** Players need the game port (UDP, 9003 by default) and the query port (UDP), which the server browser uses. By default the query port is 27016 plus the game port's remainder after dividing by 5, so game port 9003 means query port 27019. To pick it yourself, set `NetworkConfig.QueryPort` in `appsettings.json`, for example when several servers share one IP. Forward both in your router to the server machine if players join from outside your home network.
 - **Difficulty.** Chosen once, when the world is created, and it can never change:
   - Hylic: A forgiving world for exploring at your own pace.
@@ -146,7 +146,7 @@ The server reads both files every time it starts, so restart it after an edit. A
 |---|---|---|
 | `DisplayName` | the world folder name | The world name players see |
 | `Description` | empty | Short description for the server browser |
-| `MaxPlayers` | 100 | Players online at once. The installer accepts 1 to 1000 |
+| `MaxPlayers` | 100 | Players online at once. The installer accepts 1 to 1000. `--admin maxplayers` changes it while the server runs |
 | `ServerPassword` | empty | Join password. Empty means anyone can join |
 | `PvPEnabled` | `true` | `true` or `false` |
 | `DeathPenalty` | `DeathContainer` | `DeathContainer` (items go to Death's shop) or `KeepInventory` |
@@ -195,7 +195,7 @@ For example, to give a server its own query port and turn respawn scaling off:
 Every setting above can also be given on the command line or as an environment variable, and those win over the files. Use `:` on the command line and `__` in environment variables:
 
 - `--NetworkConfig:QueryPort=27100` or `NetworkConfig__QueryPort=27100`
-- `--WorldConfig:MaxPlayers=50` or `WorldConfig__MaxPlayers=50` (world settings go under `WorldConfig`)
+- `--WorldConfig:MaxPlayers=50` or `WorldConfig__MaxPlayers=50` (world settings go under `WorldConfig`). At the next start this also replaces a limit set with `--admin maxplayers`
 - `--RespawnScalingConfig:Enabled=false` or `RespawnScalingConfig__Enabled=false`
 
 ## Troubleshooting
