@@ -49,6 +49,7 @@ Press Enter to accept the default shown in brackets. Each question also has a co
 | World | Difficulty (new worlds only), the world name players see, a short description |
 | Gameplay | PvP, death penalty (items go to Death's shop, or players keep them), XP, gathering and loot multipliers from 0.1 to 10 |
 | Respawns | Whether monsters and resources respawn faster when several players are nearby, and if so how close players must be, how much each extra player speeds respawns up, and the shortest a respawn can get |
+| AFK | Seconds without activity before a player is marked AFK, where 0 turns AFK off |
 | Characters | Characters per Steam account, whether characters from other worlds may arrive, their highest level, whether their gear is removed, who may bring them |
 | Running | Keep it running, open the firewall |
 
@@ -168,12 +169,15 @@ The server manages `OriginServerId`, `CreatedDate` and `LastPlayedDate` itself. 
 |---|---|---|
 | `NetworkConfig.Name` | `Everlast Dedicated Server` (installer) | Server name in the server browser |
 | `NetworkConfig.Port` | 9003 | Game port (UDP) |
-| `NetworkConfig.QueryPort` | 27016 + game port % 5 | Query port (UDP) for the server browser. Set it when several servers share one IP |
+| `NetworkConfig.QueryPort` | 27016 + game port % 5 | Query port (UDP) for the server browser. 0 or no value means the default. Set it when several servers share one IP |
 | `NetworkConfig.Location` | `Usa` | Region shown in the server browser: `Usa`, `Eu` or `Oce` |
+| `LaunchConfig.AdvertiseServer` | `true` | Whether the server shows up in the server browser. `false` keeps it out of the browser list |
 | `RespawnScalingConfig.Enabled` | `true` | Respawn faster when several players are near, see below |
 | `RespawnScalingConfig.RadiusMeters` | 50 | How close a player must be to count, from 1 to 500 metres |
 | `RespawnScalingConfig.PerPlayerSpeedup` | 0.5 | How much each player after the first speeds respawns up, from 0 to 10 |
 | `RespawnScalingConfig.MinMultiplier` | 0.25 | The shortest a respawn timer can get, as a fraction of its normal length, from 0.05 to 1 |
+| `AfkConfig.ThresholdSeconds` | 600 | Seconds without activity before a player is marked AFK, see below. 0 turns AFK off, any other value is clamped to 60 to 86400 and the server log says so at start |
+| `Serilog.MinimumLevel.Default` | `Information` | How much the server writes to its log: `Verbose`, `Debug`, `Information`, `Warning`, `Error` or `Fatal` |
 
 For example, to give a server its own query port and turn respawn scaling off:
 
@@ -190,6 +194,8 @@ For example, to give a server its own query port and turn respawn scaling off:
 |---|---|---|---|---|---|---|
 | Respawn time | normal | 67% | 50% | 40% | 33% | 25% |
 
+**AFK players** are marked after `ThresholdSeconds` seconds without real activity, such as moving, chatting, using abilities or trading. Other players see an AFK tag on them. AFK players are skipped by event time-present rewards and by the event and respawn player-count scaling. When the server is full and a new player needs the slot, AFK players are removed first. Staff and the host are never removed. Set `ThresholdSeconds` to 0 to turn AFK off.
+
 ### Overriding settings without editing the files
 
 Every setting above can also be given on the command line or as an environment variable, and those win over the files. Use `:` on the command line and `__` in environment variables:
@@ -197,6 +203,18 @@ Every setting above can also be given on the command line or as an environment v
 - `--NetworkConfig:QueryPort=27100` or `NetworkConfig__QueryPort=27100`
 - `--WorldConfig:MaxPlayers=50` or `WorldConfig__MaxPlayers=50` (world settings go under `WorldConfig`). At the next start this also replaces a limit set with `--admin maxplayers`
 - `--RespawnScalingConfig:Enabled=false` or `RespawnScalingConfig__Enabled=false`
+- `--AfkConfig:ThresholdSeconds=1800` or `AfkConfig__ThresholdSeconds=1800`
+
+### Full config templates
+
+The [`templates`](templates) folder holds a full copy of both settings files with every setting at its default. The [settings reference](#settings-reference) above explains each key.
+
+| File | What it holds | Where it goes |
+|---|---|---|
+| [`templates/worldsettings.json`](templates/worldsettings.json) | Every world setting, except `OriginServerId`, `CreatedDate` and `LastPlayedDate`, which the server manages | `<data folder>/Worlds/<world>/worldsettings.json` |
+| [`templates/appsettings.json`](templates/appsettings.json) | The server settings you can change | `<data folder>/appsettings.json` |
+
+Do not copy a whole template over your own file. Copy only the lines you want to change and leave the rest out. A setting that is left out uses the server's default, so when a later release improves a default you get the improvement. A line copied unchanged keeps today's value for good.
 
 ## Troubleshooting
 

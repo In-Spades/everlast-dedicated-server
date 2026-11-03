@@ -1,0 +1,19 @@
+{
+  "DisplayName": "My World",
+  "Description": "",
+  "MaxPlayers": 100,
+  "PvPEnabled": true,
+  "XpRate": 1,
+  "GatherRate": 1,
+  "LootRate": 1,
+  "DeathPenalty": "DeathContainer",
+  "Difficulty": "Psychic",
+  "AcceptsTransfers": false,
+  "MaxCharactersPerUser": 10,
+  "MaxImportLevel": 0,
+  "StripGearOnImport": false,
+  "ImportAllowlist": "",
+  "TransferExceptionIds": "",
+  "Admins": "",
+  "ServerPassword": ""
+}

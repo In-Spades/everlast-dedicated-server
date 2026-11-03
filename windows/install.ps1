@@ -54,6 +54,8 @@ Distance in metres from 1 to 500 for nearby players.
 Speedup per extra nearby player from 0 to 10.
 .PARAMETER RespawnFloor
 Shortest respawn time as a fraction of normal from 0.05 to 1.
+.PARAMETER AfkThresholdSeconds
+Seconds without activity before a player is marked AFK. Use 0 to turn AFK off, otherwise 60 to 86400.
 .PARAMETER MaxCharacters
 Characters per Steam account from 1 to 100.
 .PARAMETER Transfers
@@ -103,6 +105,7 @@ param(
     [Nullable[decimal]]$RespawnRadius,
     [Nullable[decimal]]$RespawnSpeedup,
     [Nullable[decimal]]$RespawnFloor,
+    [Nullable[int]]$AfkThresholdSeconds,
     [Nullable[int]]$MaxCharacters,
     [string]$Transfers,
     [Nullable[int]]$MaxImportLevel,
@@ -500,6 +503,13 @@ if ($RespawnScalingEnabled) {
     $RespawnFloor = Get-DecimalOption $RespawnFloor ($PSBoundParameters.ContainsKey('RespawnFloor')) 'Shortest respawn time as a fraction of normal (0.05 to 1)' ([decimal](Get-Property $existingRespawn 'MinMultiplier' 0.25)) 0.05 1
 }
 
+$existingAfk = if ($null -ne $existingApp) { Get-Property $existingApp 'AfkConfig' $null } else { $null }
+$afkDefault = [int](Get-Property $existingAfk 'ThresholdSeconds' 600)
+if ($afkDefault -ne 0 -and ($afkDefault -lt 60 -or $afkDefault -gt 86400)) { $afkDefault = 600 }
+Write-Host ''
+Write-Host 'AFK players' -ForegroundColor Cyan
+Write-Host 'A player with no activity for this long is tagged AFK, skipped by event rewards and scaling, and removed first when a new player needs a slot on a full server.'
+$AfkThresholdSeconds = [int](Get-TextOption $AfkThresholdSeconds ($PSBoundParameters.ContainsKey('AfkThresholdSeconds')) 'Seconds without activity before a player is marked AFK, 0 turns AFK off (60 to 86400)' ([string]$afkDefault) { param($v) $v -match '^(0|[1-9][0-9]{0,5})$' -and ([int]$v -eq 0 -or ([int]$v -ge 60 -and [int]$v -le 86400)) } 'Enter 0 to turn AFK off, or a whole number from 60 to 86400.')
 Write-Host ''
 Write-Host 'Characters' -ForegroundColor Cyan
 $MaxCharacters = Get-IntOption $MaxCharacters ($PSBoundParameters.ContainsKey('MaxCharacters')) 'Characters per Steam account' ([int](Get-Property $existingWorld 'MaxCharactersPerUser' 10)) 1 100
@@ -543,6 +553,7 @@ Write-Host "Join password: $(if ([string]::IsNullOrEmpty($Password)) { 'empty' }
 Write-Host "Admins: $(if ([string]::IsNullOrEmpty($Admins)) { 'empty' } else { $Admins })"
 Write-Host "Rates: XP $XpRate, gather $GatherRate, loot $LootRate"
 Write-Host "Respawn scaling: $(if ($RespawnScalingEnabled) { "yes, radius $RespawnRadius m, speedup $RespawnSpeedup, floor $RespawnFloor" } else { 'no' })"
+Write-Host "AFK: $(if ($AfkThresholdSeconds -eq 0) { 'off' } else { "after $AfkThresholdSeconds seconds without activity" })"
 Write-Host "Transfers: $TransfersEnabled"
 Write-Host "Start at logon: $ServiceEnabled"
 Write-Host "Windows Firewall: $FirewallEnabled"
@@ -694,6 +705,12 @@ if ($RespawnScalingEnabled) {
     Set-JsonProperty $respawnSettings 'PerPlayerSpeedup' $RespawnSpeedup
     Set-JsonProperty $respawnSettings 'MinMultiplier' $RespawnFloor
 }
+$afkSettings = Get-Property $appSettings 'AfkConfig' $null
+if ($null -eq $afkSettings) {
+    $afkSettings = [PSCustomObject][ordered]@{}
+    Set-JsonProperty $appSettings 'AfkConfig' $afkSettings
+}
+Set-JsonProperty $afkSettings 'ThresholdSeconds' $AfkThresholdSeconds
 Write-Utf8NoBom $appSettingsPath ((ConvertTo-ReadableJson $appSettings 20) + [Environment]::NewLine)
 
 $installedScriptPath = Join-Path $InstallDir 'install.ps1'

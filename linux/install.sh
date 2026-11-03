@@ -59,6 +59,8 @@ Every option is prompted unless it is passed here or --yes is used. Run it again
   --respawn-radius NUMBER  Nearby-player radius from 1 to 500 metres
   --respawn-speedup NUMBER Speedup per extra player from 0 to 10
   --respawn-floor NUMBER   Minimum respawn fraction from 0.05 to 1
+  --afk-threshold-seconds NUMBER
+                           Seconds without activity before a player is marked AFK, 0 turns AFK off, otherwise 60 to 86400
   --max-characters NUMBER  Characters per Steam account from 1 to 100
   --transfers yes|no
   --max-import-level NUMBER
@@ -76,7 +78,7 @@ EOF
 }
 
 OPTIONS=(INSTALL_DIR DATA_DIR WORLD SERVER_NAME PORT QUERY_PORT REGION MAX_PLAYERS PASSWORD ADMINS DIFFICULTY WORLD_DISPLAY_NAME DESCRIPTION
-    PVP DEATH_PENALTY XP_RATE GATHER_RATE LOOT_RATE RESPAWN_SCALING RESPAWN_RADIUS RESPAWN_SPEEDUP RESPAWN_FLOOR
+    PVP DEATH_PENALTY XP_RATE GATHER_RATE LOOT_RATE RESPAWN_SCALING RESPAWN_RADIUS RESPAWN_SPEEDUP RESPAWN_FLOOR AFK_THRESHOLD_SECONDS
     MAX_CHARACTERS TRANSFERS MAX_IMPORT_LEVEL STRIP_GEAR IMPORT_ALLOWLIST INSTALL_DOCKER SERVICE FIREWALL)
 declare -A GIVEN=()
 need_value() { [ "$#" -ge 2 ] || fail "$1 needs a value."; }
@@ -149,6 +151,7 @@ yes_no() { [ "$1" = yes ] || [ "$1" = no ] || { echo "Answer yes or no."; return
 port() { [[ $1 =~ ^[1-9][0-9]{0,4}$ ]] && [ "$1" -le 65535 ] || { echo "Use a number from 1 to 65535."; return 1; }; }
 range() { [[ $3 =~ ^(0|[1-9][0-9]*)$ ]] && [ "$3" -ge "$1" ] && [ "$3" -le "$2" ] || { echo "Use a whole number from $1 to $2."; return 1; }; }
 whole() { [[ $1 =~ ^(0|[1-9][0-9]{0,8})$ ]] || { echo "Use 0 or a whole number."; return 1; }; }
+afk_threshold() { [[ $1 =~ ^(0|[1-9][0-9]{0,5})$ ]] && { [ "$1" -eq 0 ] || { [ "$1" -ge 60 ] && [ "$1" -le 86400 ]; }; } || { echo "Use 0 to turn AFK off, or a whole number from 60 to 86400."; return 1; }; }
 rate() { [[ $1 =~ ^(0|[1-9][0-9]*)(\.[0-9]+)?$ ]] && awk -v r="$1" 'BEGIN { exit !(r >= 0.1 && r <= 10) }' || { echo "Use a number from 0.1 to 10, such as 1 or 1.5."; return 1; }; }
 decimal_range() { [[ $3 =~ ^(0|[1-9][0-9]*)(\.[0-9]+)?$ ]] && awk -v r="$3" -v lo="$1" -v hi="$2" 'BEGIN { exit !(r >= lo && r <= hi) }' || { echo "Use a number from $1 to $2."; return 1; }; }
 query_port() { port "$2" >/dev/null || { port "$2"; return 1; }; [ "$2" != "$1" ] || { echo "The query port must be different from the game port."; return 1; }; }
@@ -378,6 +381,12 @@ if [ "$RESPAWN_SCALING" = yes ]; then
 fi
 
 info ""
+info "AFK players"
+info "A player with no activity for this long is tagged AFK, skipped by event rewards and scaling, and removed first when a new player needs a slot on a full server."
+afk_default=$(json_get_ci "$APP_FILE" AfkConfig ThresholdSeconds 600); afk_threshold "$afk_default" >/dev/null 2>&1 || afk_default=600
+ask AFK_THRESHOLD_SECONDS "Seconds without activity before a player is marked AFK, 0 turns AFK off (60 to 86400)" "$afk_default" afk_threshold
+
+info ""
 info "Characters"
 ask MAX_CHARACTERS "Characters per Steam account" "$(json_get "$WORLD_FILE" MaxCharactersPerUser 10)" range 1 100
 transfers_default=$(json_get "$WORLD_FILE" AcceptsTransfers false); [ "$transfers_default" = true ] && transfers_default=yes || transfers_default=no
@@ -419,6 +428,11 @@ if [ "$RESPAWN_SCALING" = yes ]; then
     info "  Respawn scaling: yes, radius ${RESPAWN_RADIUS}m, speedup $RESPAWN_SPEEDUP, floor $RESPAWN_FLOOR"
 else
     info "  Respawn scaling: no"
+fi
+if [ "$AFK_THRESHOLD_SECONDS" -eq 0 ]; then
+    info "  AFK:             off"
+else
+    info "  AFK:             after $AFK_THRESHOLD_SECONDS seconds without activity"
 fi
 info "  Characters:      $MAX_CHARACTERS per account, transfers $TRANSFERS, max import level $MAX_IMPORT_LEVEL, strip gear $STRIP_GEAR"
 info "  Import allowed:  ${IMPORT_ALLOWLIST:-everyone}"
@@ -468,7 +482,7 @@ fi
 app_json=$(if [ -f "$APP_FILE" ]; then cat "$APP_FILE"; else echo '{}'; fi)
 [ "$RESPAWN_SCALING" = yes ] && respawn_json=true || respawn_json=false
 app_json=$(jq --arg name "$SERVER_NAME" --argjson port "$PORT" --argjson queryPort "$QUERY_PORT" --arg location "$REGION" \
-    --argjson enabled "$respawn_json" --arg scaling "$RESPAWN_SCALING" \
+    --argjson enabled "$respawn_json" --arg scaling "$RESPAWN_SCALING" --argjson afk "$AFK_THRESHOLD_SECONDS" \
     --argjson radius "${RESPAWN_RADIUS:-null}" --argjson speedup "${RESPAWN_SPEEDUP:-null}" --argjson floor "${RESPAWN_FLOOR:-null}" '
     def drop($names): with_entries(select((.key | ascii_downcase) as $k | $names | index($k) | not));
     .NetworkConfig = ((.NetworkConfig // {}) | drop(["name", "port", "queryport", "location"]))
@@ -477,7 +491,8 @@ app_json=$(jq --arg name "$SERVER_NAME" --argjson port "$PORT" --argjson queryPo
     | if $scaling == "yes" then
         .RespawnScalingConfig = (.RespawnScalingConfig | drop(["radiusmeters", "perplayerspeedup", "minmultiplier"]))
             + {RadiusMeters: $radius, PerPlayerSpeedup: $speedup, MinMultiplier: $floor}
-      else . end' <<<"$app_json") || fail "Could not update $APP_FILE."
+      else . end
+    | .AfkConfig = ((.AfkConfig // {}) | drop(["thresholdseconds"])) + {ThresholdSeconds: $afk}' <<<"$app_json") || fail "Could not update $APP_FILE."
 
 [ "$PVP" = yes ] && pvp_json=true || pvp_json=false
 [ "$TRANSFERS" = yes ] && transfers_json=true || transfers_json=false

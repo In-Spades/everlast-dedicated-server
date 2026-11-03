@@ -52,6 +52,8 @@ Every option is prompted unless it is passed here or --yes is used.
   --respawn-radius NUMBER  Nearby player radius from 1 to 500 metres
   --respawn-speedup NUMBER Speedup per extra player from 0 to 10
   --respawn-floor NUMBER   Minimum respawn multiplier from 0.05 to 1
+  --afk-threshold-seconds NUMBER
+                           Seconds without activity before a player is marked AFK, 0 turns AFK off, otherwise 60 to 86400
   --max-characters NUMBER  Characters per Steam account from 1 to 100
   --transfers yes|no
   --max-import-level NUMBER
@@ -68,7 +70,7 @@ EOF
 }
 
 # Mark flag values separately so an explicitly empty value is still respected.
-for key in INSTALL_DIR DATA_DIR WORLD SERVER_NAME PORT QUERY_PORT REGION MAX_PLAYERS PASSWORD ADMINS DIFFICULTY WORLD_DISPLAY_NAME DESCRIPTION PVP DEATH_PENALTY XP_RATE GATHER_RATE LOOT_RATE RESPAWN_SCALING RESPAWN_RADIUS RESPAWN_SPEEDUP RESPAWN_FLOOR MAX_CHARACTERS TRANSFERS MAX_IMPORT_LEVEL STRIP_GEAR IMPORT_ALLOWLIST SERVICE FIREWALL; do
+for key in INSTALL_DIR DATA_DIR WORLD SERVER_NAME PORT QUERY_PORT REGION MAX_PLAYERS PASSWORD ADMINS DIFFICULTY WORLD_DISPLAY_NAME DESCRIPTION PVP DEATH_PENALTY XP_RATE GATHER_RATE LOOT_RATE RESPAWN_SCALING RESPAWN_RADIUS RESPAWN_SPEEDUP RESPAWN_FLOOR AFK_THRESHOLD_SECONDS MAX_CHARACTERS TRANSFERS MAX_IMPORT_LEVEL STRIP_GEAR IMPORT_ALLOWLIST SERVICE FIREWALL; do
     eval "${key}_SET=no"
 done
 
@@ -102,6 +104,7 @@ while [ "$#" -gt 0 ]; do
         --respawn-radius) need_value "$@"; RESPAWN_RADIUS=$2; RESPAWN_RADIUS_SET=yes; shift 2 ;;
         --respawn-speedup) need_value "$@"; RESPAWN_SPEEDUP=$2; RESPAWN_SPEEDUP_SET=yes; shift 2 ;;
         --respawn-floor) need_value "$@"; RESPAWN_FLOOR=$2; RESPAWN_FLOOR_SET=yes; shift 2 ;;
+        --afk-threshold-seconds) need_value "$@"; AFK_THRESHOLD_SECONDS=$2; AFK_THRESHOLD_SECONDS_SET=yes; shift 2 ;;
         --max-characters) need_value "$@"; MAX_CHARACTERS=$2; MAX_CHARACTERS_SET=yes; shift 2 ;;
         --transfers) need_value "$@"; TRANSFERS=$2; TRANSFERS_SET=yes; shift 2 ;;
         --max-import-level) need_value "$@"; MAX_IMPORT_LEVEL=$2; MAX_IMPORT_LEVEL_SET=yes; shift 2 ;;
@@ -198,6 +201,7 @@ validate_description() { [ ${#1} -le 120 ]; }
 validate_difficulty() { case "$1" in Hylic|Psychic|Pneumonic|Pyrrhic|Sufferer|OneShot) return 0;; *) return 1;; esac; }
 validate_death_penalty() { [ "$1" = shop ] || [ "$1" = keep ]; }
 validate_uint() { case "$1" in ''|*[!0-9]*) return 1;; esac; }
+validate_afk_threshold() { validate_uint "$1" && { [ "$1" -eq 0 ] || validate_uint_range "$1" 60 86400; }; }
 validate_json_file() {
     vjf_file=$1
     [ ! -f "$vjf_file" ] && return
@@ -406,6 +410,14 @@ else
 fi
 
 info ""
+info "AFK players"
+info "A player with no activity for this long is tagged AFK, skipped by event rewards and scaling, and removed first when a new player needs a slot on a full server."
+afk_default=$(json_get_ci "$APP_FILE" AfkConfig.ThresholdSeconds 600)
+validate_afk_threshold "$afk_default" || afk_default=600
+prompt_value AFK_THRESHOLD_SECONDS "Seconds without activity before a player is marked AFK, 0 turns AFK off (60 to 86400)" "$afk_default"
+reprompt AFK_THRESHOLD_SECONDS "AFK threshold must be 0 or a whole number from 60 to 86400." validate_afk_threshold
+
+info ""
 info "Characters"
 prompt_value MAX_CHARACTERS "Characters per Steam account" "$(json_get "$WORLD_FILE" MaxCharactersPerUser 10)"
 reprompt MAX_CHARACTERS "Characters must be a number from 1 to 100." validate_uint_range 1 100
@@ -432,7 +444,7 @@ info ""
 info "Install summary"
 printf 'Install folder: %s\nData folder: %s\nWorld: %s\nServer name: %s\nGame port: %s UDP\nQuery port: %s UDP\nRegion: %s\nMax players: %s\nPassword: ' "$INSTALL_DIR" "$DATA_DIR" "$WORLD" "$SERVER_NAME" "$PORT" "$QUERY_PORT" "$REGION" "$MAX_PLAYERS"
 [ -n "$PASSWORD" ] && info set || info empty
-printf 'Admins: %s\nDifficulty: %s\nWorld display name: %s\nDescription: %s\nPvP: %s\nDeath penalty: %s\nXP rate: %s\nGather rate: %s\nLoot rate: %s\nRespawn scaling: %s\nRespawn radius: %s\nRespawn speedup: %s\nRespawn floor: %s\nMax characters: %s\nTransfers: %s\nMax import level: %s\nStrip gear: %s\nImport allowlist: %s\nService: %s\nFirewall: %s\n' "$ADMINS" "$DIFFICULTY" "$WORLD_DISPLAY_NAME" "$DESCRIPTION" "$PVP" "$DEATH_PENALTY" "$XP_RATE" "$GATHER_RATE" "$LOOT_RATE" "$RESPAWN_SCALING" "$RESPAWN_RADIUS" "$RESPAWN_SPEEDUP" "$RESPAWN_FLOOR" "$MAX_CHARACTERS" "$TRANSFERS" "$MAX_IMPORT_LEVEL" "$STRIP_GEAR" "$IMPORT_ALLOWLIST" "$SERVICE" "$FIREWALL"
+printf 'Admins: %s\nDifficulty: %s\nWorld display name: %s\nDescription: %s\nPvP: %s\nDeath penalty: %s\nXP rate: %s\nGather rate: %s\nLoot rate: %s\nRespawn scaling: %s\nRespawn radius: %s\nRespawn speedup: %s\nRespawn floor: %s\nAFK threshold seconds: %s\nMax characters: %s\nTransfers: %s\nMax import level: %s\nStrip gear: %s\nImport allowlist: %s\nService: %s\nFirewall: %s\n' "$ADMINS" "$DIFFICULTY" "$WORLD_DISPLAY_NAME" "$DESCRIPTION" "$PVP" "$DEATH_PENALTY" "$XP_RATE" "$GATHER_RATE" "$LOOT_RATE" "$RESPAWN_SCALING" "$RESPAWN_RADIUS" "$RESPAWN_SPEEDUP" "$RESPAWN_FLOOR" "$AFK_THRESHOLD_SECONDS" "$MAX_CHARACTERS" "$TRANSFERS" "$MAX_IMPORT_LEVEL" "$STRIP_GEAR" "$IMPORT_ALLOWLIST" "$SERVICE" "$FIREWALL"
 if [ "$YES" != yes ]; then
     printf 'Continue with the install? [yes]: '
     IFS= read -r proceed || fail "Input ended before confirmation."
@@ -527,7 +539,7 @@ ORIGIN=$(json_get "$WORLD_FILE" OriginServerId "")
 
 merge_json_settings() {
     [ "$RESPAWN_SCALING" = yes ] && RESPAWN_JSON=true || RESPAWN_JSON=false
-    SETTINGS_FILE=$APP_FILE SERVER_NAME=$SERVER_NAME PORT=$PORT QUERY_PORT=$QUERY_PORT REGION=$REGION RESPAWN_JSON=$RESPAWN_JSON RESPAWN_RADIUS=$RESPAWN_RADIUS RESPAWN_SPEEDUP=$RESPAWN_SPEEDUP RESPAWN_FLOOR=$RESPAWN_FLOOR \
+    SETTINGS_FILE=$APP_FILE SERVER_NAME=$SERVER_NAME PORT=$PORT QUERY_PORT=$QUERY_PORT REGION=$REGION RESPAWN_JSON=$RESPAWN_JSON RESPAWN_RADIUS=$RESPAWN_RADIUS RESPAWN_SPEEDUP=$RESPAWN_SPEEDUP RESPAWN_FLOOR=$RESPAWN_FLOOR AFK_THRESHOLD_SECONDS=$AFK_THRESHOLD_SECONDS \
     osascript -l JavaScript <<'JXA' >/dev/null || fail "Could not merge settings into $APP_FILE."
 ObjC.import('Foundation');
 function env(name) { return ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey(name)); }
@@ -550,6 +562,10 @@ var respawn = respawnKeys.length ? objectOrEmpty(root[respawnKeys[respawnKeys.le
 respawnKeys.forEach(function (key) { delete root[key]; }); removeKey(respawn, 'Enabled'); respawn.Enabled = env('RESPAWN_JSON') === 'true';
 if (respawn.Enabled) { ['RadiusMeters', 'PerPlayerSpeedup', 'MinMultiplier'].forEach(function (key) { removeKey(respawn, key); }); respawn.RadiusMeters = Number(env('RESPAWN_RADIUS')); respawn.PerPlayerSpeedup = Number(env('RESPAWN_SPEEDUP')); respawn.MinMultiplier = Number(env('RESPAWN_FLOOR')); }
 root.RespawnScalingConfig = respawn;
+var afkKeys = Object.keys(root).filter(function (key) { return key.toLowerCase() === 'afkconfig'; });
+var afk = afkKeys.length ? objectOrEmpty(root[afkKeys[afkKeys.length - 1]]) : {};
+afkKeys.forEach(function (key) { delete root[key]; }); removeKey(afk, 'ThresholdSeconds'); afk.ThresholdSeconds = Number(env('AFK_THRESHOLD_SECONDS'));
+root.AfkConfig = afk;
 var output = JSON.stringify(root, null, 2) + '\n';
 if (!$(output).writeToFileAtomicallyEncodingError(file, true, $.NSUTF8StringEncoding, null)) throw new Error('Could not write ' + file);
 JXA
